@@ -1,5 +1,9 @@
 const CLIPS_KEY = 'clipDraftByUrl';
 
+function isFiniteNum(x) {
+  return typeof x === 'number' && x === x && x !== Infinity && x !== -Infinity;
+}
+
 /** chrome.storage.local — always via callback (content scripts). */
 function mtStorageLocalGet(keys) {
   return new Promise((resolve) => {
@@ -80,20 +84,26 @@ function pageUrlForMeTube(href) {
 }
 
 function safeVideoTime(video) {
-  if (!video) {
+  if (!video || !video.isConnected) {
+    return 0;
+  }
+  if (typeof HTMLVideoElement !== 'undefined' && !(video instanceof HTMLVideoElement)) {
     return 0;
   }
   try {
+    if (video.readyState < 1) {
+      return 0;
+    }
     const t = video.currentTime;
-    return Number.isFinite(t) && t >= 0 ? t : 0;
+    return isFiniteNum(t) && t >= 0 ? t : 0;
   } catch {
     return 0;
   }
 }
 
 function formatClipTime(seconds) {
-  const n = Number(seconds);
-  if (!Number.isFinite(n) || n < 0) {
+  const n = typeof seconds === 'number' ? seconds : parseFloat(String(seconds));
+  if (!isFiniteNum(n) || n < 0) {
     return '0:00';
   }
   const total = Math.floor(n);
@@ -106,18 +116,32 @@ function formatClipTime(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function videoArea(v) {
+  try {
+    if (!v?.isConnected) return 0;
+    return v.clientWidth * v.clientHeight;
+  } catch {
+    return 0;
+  }
+}
+
 function getActiveVideo() {
-  const candidates = Array.from(document.querySelectorAll('video')).filter(
-    (v) => v.readyState >= 1,
-  );
+  let candidates = [];
+  try {
+    candidates = Array.from(document.querySelectorAll('video')).filter((v) => {
+      try {
+        return v.isConnected && v.readyState >= 1;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return null;
+  }
   if (!candidates.length) {
     return null;
   }
-  return candidates.reduce((best, v) => {
-    const area = v.clientWidth * v.clientHeight;
-    const bestArea = best.clientWidth * best.clientHeight;
-    return area > bestArea ? v : best;
-  });
+  return candidates.reduce((best, v) => (videoArea(v) > videoArea(best) ? v : best));
 }
 
 function shouldShowBar() {
@@ -257,7 +281,7 @@ function getVideoStateResponse() {
     return {
       ok: true,
       currentTime: safeVideoTime(video),
-      duration: Number.isFinite(video.duration) ? video.duration : 0,
+      duration: isFiniteNum(video.duration) ? video.duration : 0,
       formatted: formatClipTime(safeVideoTime(video)),
       pageUrl,
       pageKey,
@@ -349,13 +373,13 @@ function ensureOverlay() {
   bar.querySelector('[data-action="start"]').addEventListener('mousedown', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    doMarkStart();
+    doMarkStart().catch(() => syncOverlayState());
   });
 
   bar.querySelector('[data-action="end"]').addEventListener('mousedown', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    doMarkEnd();
+    doMarkEnd().catch(() => syncOverlayState());
   });
 
   bar.querySelector('[data-action="clear"]').addEventListener('mousedown', (e) => {
@@ -379,24 +403,32 @@ function ensureOverlay() {
 
 function syncOverlayState() {
   if (!overlayRoot) return;
-  const statusEl = overlayRoot.querySelector('[data-role="status"]');
-  const btnEnd = overlayRoot.querySelector('[data-action="end"]');
-  const btnClear = overlayRoot.querySelector('[data-action="clear"]');
-  ensurePendingLoaded().then(async (pending) => {
-    const clips = await loadClipsForPage();
-    btnEnd.disabled = !pending;
-    btnClear.hidden = !pending;
-    if (pending) {
-      statusEl.textContent = `Start ${pending} — spule zum Ende, dann Ende`;
-    } else if (clips.length) {
-      statusEl.textContent = `${clips.length} Clip(s) — Popup für MeTube / Queue`;
-    } else {
-      const v = getActiveVideo();
-      statusEl.textContent = v
-        ? `Jetzt: ${formatClipTime(safeVideoTime(v))}`
-        : 'Kein Video';
-    }
-  });
+  try {
+    const statusEl = overlayRoot.querySelector('[data-role="status"]');
+    const btnEnd = overlayRoot.querySelector('[data-action="end"]');
+    const btnClear = overlayRoot.querySelector('[data-action="clear"]');
+    ensurePendingLoaded()
+      .then(async (pending) => {
+        const clips = await loadClipsForPage();
+        btnEnd.disabled = !pending;
+        btnClear.hidden = !pending;
+        if (pending) {
+          statusEl.textContent = `Start ${pending} — spule zum Ende, dann Ende`;
+        } else if (clips.length) {
+          statusEl.textContent = `${clips.length} Clip(s) — Popup für MeTube / Queue`;
+        } else {
+          const v = getActiveVideo();
+          statusEl.textContent = v
+            ? `Jetzt: ${formatClipTime(safeVideoTime(v))}`
+            : 'Kein Video';
+        }
+      })
+      .catch(() => {
+        if (statusEl) statusEl.textContent = 'Video nicht bereit';
+      });
+  } catch {
+    /* ignore — some players break DOM access */
+  }
 }
 
 function initBar() {
