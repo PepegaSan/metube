@@ -6,6 +6,20 @@ This fork: [PepegaSan/metube](https://github.com/PepegaSan/metube)
 This file lists **commits and changes that exist only in this fork** (not in upstream).  
 When you add your own work: append a row to the changelog and note the files you touched.
 
+## Where downloads and state are stored
+
+MeTube does **not** delete finished media for you. After a clip download completes, the files stay on disk until you remove them yourself.
+
+| What | Typical location (Docker) |
+| --- | --- |
+| **Downloaded video/audio files** (including clip/batch/merged jobs) | Host folder mapped to `DOWNLOAD_DIR` — e.g. `downloads/` next to your `docker-compose.yml` → on Windows often `...\metube-dev\downloads`. Inside the container this is `/downloads`. |
+| **Queue / done list / MeTube state** (not the media files) | `DOWNLOAD_DIR/.metube` (e.g. `downloads/.metube` on the host). Clearing entries in the MeTube UI removes them from the queue list but **does not** delete files already written to `downloads/`. |
+| **Optional subfolder** | If you pick a custom folder in the web UI (Advanced Options), files go under that directory under `DOWNLOAD_DIR`. |
+
+Clip-related jobs often get an automatic filename prefix such as `clip_1:30-2:00_` or `clipbatch_…` so you can tell them apart from full-video downloads.
+
+The browser extension only stores **time ranges** in Chrome (`chrome.storage.local`) until you send a job to MeTube; it does not store downloaded files.
+
 ## Changelog
 
 | Date | Commit | Summary |
