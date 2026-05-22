@@ -17,6 +17,8 @@ Key capabilities:
 
 For **Video** or **Audio**, use **Clip start** / **Clip end** (`90`, `1:30`, `H:MM:SS`), or **Batch clips** in Advanced Options (several ranges for the same URL — separate files or one merged file). Prefer a URL without `&t=` when setting times manually. Not available for subscriptions.
 
+**PepegaSan browser extension:** [metube-extension](https://github.com/PepegaSan/metube-extension) marks times on any page with a `<video>` player and either opens MeTube prefilled (`?url=…&clips=…`) or queues via API. Requires `CORS_ALLOWED_ORIGINS=*`.
+
 ## 🐳 Run using Docker
 
 ```bash

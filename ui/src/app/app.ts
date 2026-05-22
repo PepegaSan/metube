@@ -32,6 +32,7 @@ import {
 } from './interfaces';
 import { EtaPipe, SpeedPipe, FileSizePipe } from './pipes';
 import { SelectAllCheckboxComponent, ItemCheckboxComponent } from './components/';
+import { parseMetubeImportFromSearch } from './metube-import-query';
 
 @Component({
   selector: 'app-root',
@@ -84,6 +85,8 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   clipStart = '';
   clipEnd = '';
   batchClipRows: { start: string; end: string }[] = [{ start: '', end: '' }];
+  /** Set when opened via extension deep link with merge=1 */
+  importMergeHint = false;
   subtitleLanguage: string;
   subtitleMode: string;
   ytdlOptionsPresets: string[] = [];
@@ -302,6 +305,7 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.applyImportFromQueryString(window.location.search);
     this.downloads.getCookieStatus().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(data => {
       this.hasCookies = !!(data && typeof data === 'object' && 'has_cookies' in data && data.has_cookies);
       this.cdr.markForCheck();
@@ -366,6 +370,31 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   codecChanged() {
     this.cookieService.set('metube_codec', this.codec, { expires: this.settingsCookieExpiryDays });
     this.saveSelection(this.downloadType);
+  }
+
+  applyImportFromQueryString(search: string) {
+    const imp = parseMetubeImportFromSearch(search);
+    if (!imp) {
+      return;
+    }
+    this.addUrl = imp.url;
+    this.importMergeHint = !!imp.mergeClips;
+    if (imp.clips.length === 1) {
+      this.clipStart = imp.clips[0].start;
+      this.clipEnd = imp.clips[0].end;
+      this.batchClipRows = [{ start: '', end: '' }];
+    } else if (imp.clips.length > 1) {
+      this.clipStart = '';
+      this.clipEnd = '';
+      this.batchClipRows = imp.clips.map((c) => ({ start: c.start, end: c.end }));
+    }
+    if (imp.clips.length > 0 && (this.downloadType === 'video' || this.downloadType === 'audio')) {
+      this.isAdvancedOpen = true;
+    }
+    const path = window.location.pathname || '/';
+    const hash = window.location.hash || '';
+    window.history.replaceState(null, '', path + hash);
+    this.cdr.markForCheck();
   }
 
   showAdvanced() {

@@ -461,6 +461,9 @@
                   <div class="settings-section-label mb-2">Batch clips (same URL)</div>
                   <p class="text-muted small mb-2">
                     Add multiple time ranges for the URL above. Use <code>M:SS</code> or <code>H:MM:SS</code> (seconds also work).
+                    @if (importMergeHint) {
+                      <span class="d-block mt-1">Extension suggested a <strong>merged</strong> download — use <em>Download merged</em> below.</span>
+                    }
                   </p>
                   <div class="table-responsive">
                     <table class="table table-sm align-middle mb-2">
