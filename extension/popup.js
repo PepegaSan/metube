@@ -80,8 +80,8 @@ function applyFromState(state) {
 async function refresh() {
   const state = await sendBg('getVideoState');
 
-  if (state?.hint === 'reload_tab') {
-    setStatus('Tab neu laden (F5), dann unten auf der Seite die MeTube-Leiste nutzen.');
+  if (state?.error === 'context_invalidated' || state?.hint === 'reload_tab') {
+    setStatus('Extension wurde aktualisiert — diese Seite einmal neu laden (F5).');
     btnStart.disabled = true;
     btnEnd.disabled = true;
     return;

@@ -1,51 +1,137 @@
 const CLIPS_KEY = 'clipDraftByUrl';
 
+let contextTeardownDone = false;
+let navIntervalId = null;
+let syncIntervalId = null;
+
+/** After extension reload, old tabs must refresh (F5). */
+function isExtensionContextValid() {
+  try {
+    return typeof chrome !== 'undefined' && !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
+function handleInvalidExtensionContext() {
+  if (contextTeardownDone) {
+    return true;
+  }
+  if (isExtensionContextValid()) {
+    return false;
+  }
+  contextTeardownDone = true;
+  if (navIntervalId != null) {
+    clearInterval(navIntervalId);
+    navIntervalId = null;
+  }
+  if (syncIntervalId != null) {
+    clearInterval(syncIntervalId);
+    syncIntervalId = null;
+  }
+  if (overlayRoot) {
+    try {
+      overlayRoot.remove();
+    } catch {
+      /* ignore */
+    }
+    overlayRoot = null;
+  }
+  if (!document.getElementById('metube-reload-hint')) {
+    const hint = document.createElement('div');
+    hint.id = 'metube-reload-hint';
+    hint.textContent = 'MeTube-Extension wurde aktualisiert — Seite neu laden (F5)';
+    hint.style.cssText =
+      'position:fixed;bottom:12px;right:12px;z-index:2147483647;padding:10px 14px;' +
+      'background:#b02a37;color:#fff;border-radius:8px;font:13px system-ui,sans-serif;' +
+      'box-shadow:0 4px 12px rgba(0,0,0,.4);max-width:280px;';
+    document.documentElement.appendChild(hint);
+  }
+  return true;
+}
+
 function isFiniteNum(x) {
   return typeof x === 'number' && x === x && x !== Infinity && x !== -Infinity;
 }
 
 /** chrome.storage.local — always via callback (content scripts). */
 function mtStorageLocalGet(keys) {
+  if (handleInvalidExtensionContext()) {
+    return Promise.resolve({});
+  }
   return new Promise((resolve) => {
     if (!chrome?.storage?.local) {
       resolve({});
       return;
     }
-    chrome.storage.local.get(keys, (data) => {
-      resolve(chrome.runtime.lastError ? {} : data || {});
-    });
+    try {
+      chrome.storage.local.get(keys, (data) => {
+        if (handleInvalidExtensionContext()) {
+          resolve({});
+          return;
+        }
+        resolve(chrome.runtime.lastError ? {} : data || {});
+      });
+    } catch {
+      handleInvalidExtensionContext();
+      resolve({});
+    }
   });
 }
 
 function mtStorageLocalSet(items) {
+  if (handleInvalidExtensionContext()) {
+    return Promise.reject(new Error('context_invalidated'));
+  }
   return new Promise((resolve, reject) => {
     if (!chrome?.storage?.local) {
       reject(new Error('no_storage'));
       return;
     }
-    chrome.storage.local.set(items, () => {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      resolve();
-    });
+    try {
+      chrome.storage.local.set(items, () => {
+        if (handleInvalidExtensionContext()) {
+          reject(new Error('context_invalidated'));
+          return;
+        }
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        resolve();
+      });
+    } catch (e) {
+      handleInvalidExtensionContext();
+      reject(e);
+    }
   });
 }
 
 function mtStorageLocalRemove(keys) {
+  if (handleInvalidExtensionContext()) {
+    return Promise.reject(new Error('context_invalidated'));
+  }
   return new Promise((resolve, reject) => {
     if (!chrome?.storage?.local) {
       reject(new Error('no_storage'));
       return;
     }
-    chrome.storage.local.remove(keys, () => {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      resolve();
-    });
+    try {
+      chrome.storage.local.remove(keys, () => {
+        if (handleInvalidExtensionContext()) {
+          reject(new Error('context_invalidated'));
+          return;
+        }
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        resolve();
+      });
+    } catch (e) {
+      handleInvalidExtensionContext();
+      reject(e);
+    }
   });
 }
 
@@ -450,7 +536,10 @@ function initBar() {
 }
 
 let lastHref = location.href;
-setInterval(() => {
+navIntervalId = setInterval(() => {
+  if (handleInvalidExtensionContext()) {
+    return;
+  }
   if (location.href !== lastHref) {
     lastHref = location.href;
     pendingStart = null;
@@ -460,6 +549,10 @@ setInterval(() => {
 }, 800);
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (handleInvalidExtensionContext()) {
+    sendResponse({ ok: false, error: 'context_invalidated', hint: 'reload_tab' });
+    return true;
+  }
   if (msg?.action === 'getVideoState') {
     getVideoStateResponse().then(sendResponse);
     return true;
@@ -486,8 +579,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return false;
 });
 
-initBar();
-setInterval(() => {
+if (!handleInvalidExtensionContext()) {
+  initBar();
+}
+syncIntervalId = setInterval(() => {
+  if (handleInvalidExtensionContext()) {
+    return;
+  }
   if (!overlayRoot && shouldShowBar()) {
     mtStorageLocalGet('metubeBarHidden').then((d) => {
       if (!d.metubeBarHidden) ensureOverlay();
