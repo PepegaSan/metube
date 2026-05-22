@@ -26,6 +26,49 @@ export function parseMetubeImportFromSearch(search: string): MetubeImportParams 
   return { url, clips, mergeClips: mergeClips || undefined };
 }
 
+/** Parse `#mt=…` (base64url JSON) — preferred for extension handoff. */
+export function parseMetubeImportFromHash(hash: string): MetubeImportParams | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash;
+  const match = raw.match(/(?:^|&)mt=([^&]+)/);
+  if (!match) {
+    return null;
+  }
+  try {
+    const b64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '==='.slice((b64.length + 3) % 4);
+    const json = decodeURIComponent(
+      Array.from(atob(padded), (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join(''),
+    );
+    const data = JSON.parse(json) as Record<string, unknown>;
+    const url = String(data['url'] ?? '').trim();
+    if (!url) {
+      return null;
+    }
+    const clips = parseClipsArray(data['clips']);
+    const mergeClips = data['merge'] === true || data['merge'] === '1';
+    return { url, clips, mergeClips: mergeClips || undefined };
+  } catch {
+    return null;
+  }
+}
+
+export function parseMetubeImportFromLocation(search: string, hash: string): MetubeImportParams | null {
+  return parseMetubeImportFromHash(hash) ?? parseMetubeImportFromSearch(search);
+}
+
+function parseClipsArray(raw: unknown): ImportClip[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+    .map((item) => ({
+      start: String(item['start'] ?? '').trim(),
+      end: String(item['end'] ?? '').trim(),
+    }))
+    .filter((c) => c.start && c.end);
+}
+
 function parseClipsParam(raw: string | null): ImportClip[] {
   if (!raw?.trim()) {
     return [];
@@ -33,17 +76,7 @@ function parseClipsParam(raw: string | null): ImportClip[] {
   const trimmed = raw.trim();
   if (trimmed.startsWith('[')) {
     try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed
-        .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
-        .map((item) => ({
-          start: String(item['start'] ?? '').trim(),
-          end: String(item['end'] ?? '').trim(),
-        }))
-        .filter((c) => c.start && c.end);
+      return parseClipsArray(JSON.parse(trimmed) as unknown);
     } catch {
       return [];
     }
@@ -79,4 +112,23 @@ export function buildMetubeImportSearch(
     params.set('merge', '1');
   }
   return params.toString();
+}
+
+/** Build `#mt=…` fragment for extension → MeTube (survives service worker / long URLs). */
+export function buildMetubeImportHash(
+  url: string,
+  clips: ImportClip[],
+  options?: { mergeClips?: boolean },
+): string {
+  const payload = {
+    url,
+    clips,
+    merge: options?.mergeClips ?? false,
+  };
+  const json = JSON.stringify(payload);
+  const bytes = encodeURIComponent(json).replace(/%([0-9A-F]{2})/gi, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
+  const b64 = btoa(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return `#mt=${b64}`;
 }

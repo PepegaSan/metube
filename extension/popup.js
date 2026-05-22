@@ -143,6 +143,15 @@ btnShowBar?.addEventListener('click', () => {
 });
 
 btnOpen.addEventListener('click', async () => {
+  const state = await sendBg('getVideoState');
+  if (state?.pageUrl) pageUrl = state.pageUrl;
+  if (Array.isArray(state?.clips) && state.clips.length) {
+    clips = [...state.clips];
+  }
+  if (!pageUrl || !clips.length) {
+    setStatus('Keine Clips — zuerst Start/Ende auf der Seiten-Leiste');
+    return;
+  }
   const settings = await loadSettings();
   chrome.tabs.create({ url: buildMeTubeOpenUrl(settings.metubeBaseUrl, pageUrl, clips) });
 });

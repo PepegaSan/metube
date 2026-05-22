@@ -49,21 +49,28 @@ export function buildQueueBody(settings, pageUrl, clips, mergeClips) {
   };
 }
 
+function encodeImportHash(payload) {
+  const json = JSON.stringify(payload);
+  const b64 = btoa(
+    encodeURIComponent(json).replace(/%([0-9A-F]{2})/gi, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    ),
+  )
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+  return `#mt=${b64}`;
+}
+
 /**
+ * Open MeTube with clips prefilled (#mt= base64 JSON — reliable with PWA/service worker).
  * @param {string} baseUrl
  * @param {string} pageUrl
  * @param {{ start: string, end: string }[]} clips
  * @param {{ mergeClips?: boolean }} [opts]
  */
 export function buildMeTubeOpenUrl(baseUrl, pageUrl, clips, opts = {}) {
-  const params = new URLSearchParams();
-  params.set('url', pageUrl);
-  if (clips.length) {
-    params.set('clips', JSON.stringify(clips));
-  }
-  if (opts.mergeClips) {
-    params.set('merge', '1');
-  }
   const root = baseUrl.replace(/\/+$/, '') + '/';
-  return root + '?' + params.toString();
+  const payload = { url: pageUrl, clips, merge: !!opts.mergeClips };
+  return root + encodeImportHash(payload);
 }

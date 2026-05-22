@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildMetubeImportSearch, parseMetubeImportFromSearch } from './metube-import-query';
+import {
+  buildMetubeImportHash,
+  buildMetubeImportSearch,
+  parseMetubeImportFromHash,
+  parseMetubeImportFromLocation,
+  parseMetubeImportFromSearch,
+} from './metube-import-query';
 
 describe('parseMetubeImportFromSearch', () => {
   it('parses url and single clip from JSON clips', () => {
@@ -19,6 +25,25 @@ describe('parseMetubeImportFromSearch', () => {
 
   it('returns null without url', () => {
     expect(parseMetubeImportFromSearch('?clips=1:00-2:00')).toBeNull();
+  });
+});
+
+describe('parseMetubeImportFromHash', () => {
+  it('round-trips via buildMetubeImportHash', () => {
+    const clips = [{ start: '1:05', end: '2:10' }];
+    const hash = buildMetubeImportHash('https://www.youtube.com/watch?v=abc', clips, { mergeClips: true });
+    const result = parseMetubeImportFromHash(hash);
+    expect(result?.url).toContain('watch?v=abc');
+    expect(result?.clips).toEqual(clips);
+    expect(result?.mergeClips).toBe(true);
+  });
+});
+
+describe('parseMetubeImportFromLocation', () => {
+  it('prefers hash over search', () => {
+    const hash = buildMetubeImportHash('https://a.test/v', [{ start: '0:01', end: '0:02' }]);
+    const result = parseMetubeImportFromLocation('?url=https://other.test', hash);
+    expect(result?.url).toBe('https://a.test/v');
   });
 });
 

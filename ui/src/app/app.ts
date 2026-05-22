@@ -32,7 +32,7 @@ import {
 } from './interfaces';
 import { EtaPipe, SpeedPipe, FileSizePipe } from './pipes';
 import { SelectAllCheckboxComponent, ItemCheckboxComponent } from './components/';
-import { parseMetubeImportFromSearch } from './metube-import-query';
+import { parseMetubeImportFromLocation } from './metube-import-query';
 
 @Component({
   selector: 'app-root',
@@ -87,6 +87,7 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   batchClipRows: { start: string; end: string }[] = [{ start: '', end: '' }];
   /** Set when opened via extension deep link with merge=1 */
   importMergeHint = false;
+  private urlImportDone = false;
   subtitleLanguage: string;
   subtitleMode: string;
   ytdlOptionsPresets: string[] = [];
@@ -305,7 +306,7 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.applyImportFromQueryString(window.location.search);
+    this.applyImportFromUrl();
     this.downloads.getCookieStatus().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(data => {
       this.hasCookies = !!(data && typeof data === 'object' && 'has_cookies' in data && data.has_cookies);
       this.cdr.markForCheck();
@@ -320,6 +321,7 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   }
 
   ngAfterViewInit() {
+    this.applyImportFromUrl();
     this.downloads.queueChanged.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       this.queueMasterCheckbox()?.selectionChanged();
       this.cdr.markForCheck();
@@ -372,28 +374,32 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
     this.saveSelection(this.downloadType);
   }
 
-  applyImportFromQueryString(search: string) {
-    const imp = parseMetubeImportFromSearch(search);
+  applyImportFromUrl() {
+    if (this.urlImportDone) {
+      return;
+    }
+    const imp = parseMetubeImportFromLocation(window.location.search, window.location.hash);
     if (!imp) {
       return;
     }
+    this.urlImportDone = true;
     this.addUrl = imp.url;
     this.importMergeHint = !!imp.mergeClips;
-    if (imp.clips.length === 1) {
-      this.clipStart = imp.clips[0].start;
-      this.clipEnd = imp.clips[0].end;
-      this.batchClipRows = [{ start: '', end: '' }];
-    } else if (imp.clips.length > 1) {
-      this.clipStart = '';
-      this.clipEnd = '';
+    if (imp.clips.length > 0) {
       this.batchClipRows = imp.clips.map((c) => ({ start: c.start, end: c.end }));
+      if (imp.clips.length === 1) {
+        this.clipStart = imp.clips[0].start;
+        this.clipEnd = imp.clips[0].end;
+      } else {
+        this.clipStart = '';
+        this.clipEnd = '';
+      }
     }
     if (imp.clips.length > 0 && (this.downloadType === 'video' || this.downloadType === 'audio')) {
       this.isAdvancedOpen = true;
     }
     const path = window.location.pathname || '/';
-    const hash = window.location.hash || '';
-    window.history.replaceState(null, '', path + hash);
+    window.history.replaceState(null, '', path);
     this.cdr.markForCheck();
   }
 
