@@ -15,21 +15,7 @@ Key capabilities:
 
 ## ✂️ Time clips (partial downloads)
 
-For **Video** or **Audio** downloads, set optional clip boundaries in the add form:
-
-| Field | Meaning |
-| --- | --- |
-| **Clip start** | Where the clip begins (`90`, `1:30`, or `1:02:05`). Leave empty to start at the beginning (or at YouTube `&t=` in the URL if you do not set a start time). |
-| **Clip end** | Where the clip ends. Must be after the start time. |
-
-**Tips:**
-
-* Use a **clean video URL** (no `&t=` / `&start=`) when you enter both clip times manually, so an old timestamp in the link does not override your new range.
-* Each clip from the same video is queued separately. Files get an automatic name prefix like `clip_90-120` so clips do not overwrite each other.
-* **Clear completed**, **Clear failed**, and the trash icon use the correct per-clip queue id (required when several clips share one URL).
-* Clip boundaries are **not** available for subscriptions.
-
-**Example:** first 5 seconds — leave **Clip start** empty, set **Clip end** to `5` or `0:05`. A segment from 2:00 to 2:05 — **Clip start** `2:00`, **Clip end** `2:05`.
+For **Video** or **Audio**, use **Clip start** / **Clip end** (`90`, `1:30`, `H:MM:SS`). Prefer a URL without `&t=` when both times are set manually. Several clips from one URL are queued separately; files use a `clip_90-120` style prefix. Clear/delete in the UI uses per-clip ids. Not available for subscriptions.
 
 ## 🐳 Run using Docker
 
@@ -405,3 +391,7 @@ docker build -t metube .
 ```
 
 Note that if you're running the server in VSCode, your downloads will go to your user's Downloads folder (this is configured via the environment in `.vscode/launch.json`).
+
+## 🍴 Fork notes (PepegaSan)
+
+This repository is a fork of [alexta69/metube](https://github.com/alexta69/metube). **Fork-only changelog and upstream sync** — see **[FORK.md](FORK.md)** (append a row for each of your commits).
