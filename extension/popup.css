@@ -86,6 +86,20 @@ button.primary {
   flex-direction: column;
   gap: 6px;
 }
+.hint-top {
+  font-size: 11px;
+  color: #333;
+  background: #fff8e6;
+  border: 1px solid #ffe08a;
+  border-radius: 6px;
+  padding: 8px;
+  margin: 0 0 8px;
+}
+.btn-show-bar {
+  width: 100%;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
 .hint {
   font-size: 11px;
   color: #777;

@@ -16,9 +16,9 @@ Chrome extension (Manifest V3) in this repo (`extension/`) — mark clip times o
 
 ## Usage
 
-1. Open a page with a video player.
-2. Click the extension icon.
-3. **Start setzen** at the in-point (the popup closes when you click the page — that is normal). Scrub the video, reopen the extension, then **Ende setzen**. The start is stored in the tab (not in the popup), so it survives reopening.
+1. Open a page with a video player and reload the tab once after installing/updating the extension.
+2. Use the **floating bar** at the bottom-right of the page (**Start** / **Ende**). It stays on the page when you scrub the video (the toolbar popup closes on outside click — that is normal).
+3. Optional: open the extension popup to send clips to MeTube or the download queue.
 4. Either:
    - **In MeTube öffnen** — opens MeTube with URL and times prefilled, or
    - **In Queue (einzeln)** / **In Queue (merged)** — sends directly to the API.

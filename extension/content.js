@@ -1,3 +1,5 @@
+const CLIPS_KEY = 'clipDraftByUrl';
+
 function normalizeStorageKey(href) {
   try {
     const u = new URL(href);
@@ -60,8 +62,19 @@ function getActiveVideo() {
   });
 }
 
-/** Survives popup close — lives in this tab's content script. */
+function shouldShowBar() {
+  const v = getActiveVideo();
+  if (!v) return false;
+  try {
+    if (window.top === window.self) return true;
+  } catch {
+    return true;
+  }
+  return v.clientWidth >= 240 && v.clientHeight >= 135;
+}
+
 let pendingStart = null;
+let overlayRoot = null;
 
 function storageKey() {
   return normalizeStorageKey(location.href);
@@ -72,9 +85,8 @@ function pendingStorageItemKey() {
 }
 
 function loadPendingFromStorage() {
-  const key = pendingStorageItemKey();
-  return chrome.storage.local.get(key).then((data) => {
-    const value = data[key];
+  return chrome.storage.local.get(pendingStorageItemKey()).then((data) => {
+    const value = data[pendingStorageItemKey()];
     return typeof value === 'string' && value ? value : null;
   });
 }
@@ -97,84 +109,299 @@ function ensurePendingLoaded() {
   });
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.action === 'getVideoState') {
-    const pageUrl = pageUrlForMeTube(location.href);
-    const pageKey = storageKey();
-    ensurePendingLoaded().then((pending) => {
-      const video = getActiveVideo();
-      if (!video) {
-        sendResponse({
-          ok: false,
-          error: 'no_video',
-          pageUrl,
-          pageKey,
-          pendingStart: pending,
-        });
-        return;
-      }
-      sendResponse({
-        ok: true,
-        currentTime: video.currentTime,
-        duration: video.duration,
-        formatted: formatClipTime(video.currentTime),
+async function loadClipsForPage() {
+  const key = storageKey();
+  const data = await chrome.storage.local.get(CLIPS_KEY);
+  const all = data[CLIPS_KEY] || {};
+  return all[key] ? [...all[key]] : [];
+}
+
+async function appendClip(clip) {
+  const key = storageKey();
+  const data = await chrome.storage.local.get(CLIPS_KEY);
+  const all = data[CLIPS_KEY] || {};
+  const list = all[key] ? [...all[key]] : [];
+  list.push(clip);
+  all[key] = list;
+  await chrome.storage.local.set({ [CLIPS_KEY]: all });
+  return list;
+}
+
+function doMarkStart() {
+  const video = getActiveVideo();
+  if (!video) {
+    return Promise.resolve({ ok: false, error: 'no_video' });
+  }
+  pendingStart = formatClipTime(video.currentTime);
+  return savePendingToStorage(pendingStart).then(() => {
+    syncOverlayState();
+    return {
+      ok: true,
+      pendingStart,
+      pageUrl: pageUrlForMeTube(location.href),
+      pageKey: storageKey(),
+    };
+  });
+}
+
+function doMarkEnd() {
+  return ensurePendingLoaded().then((start) => {
+    const video = getActiveVideo();
+    if (!video) {
+      return { ok: false, error: 'no_video' };
+    }
+    if (!start) {
+      return { ok: false, error: 'no_pending_start' };
+    }
+    const end = formatClipTime(video.currentTime);
+    const clip = { start, end };
+    pendingStart = null;
+    return savePendingToStorage(null)
+      .then(() => appendClip(clip))
+      .then((clips) => {
+        syncOverlayState();
+        return {
+          ok: true,
+          clip,
+          clips,
+          pageUrl: pageUrlForMeTube(location.href),
+          pageKey: storageKey(),
+        };
+      });
+  });
+}
+
+function doClearPending() {
+  pendingStart = null;
+  return savePendingToStorage(null).then(() => {
+    syncOverlayState();
+    return { ok: true };
+  });
+}
+
+function getVideoStateResponse() {
+  const pageUrl = pageUrlForMeTube(location.href);
+  const pageKey = storageKey();
+  return ensurePendingLoaded().then(async (pending) => {
+    const clips = await loadClipsForPage();
+    const video = getActiveVideo();
+    if (!video) {
+      return {
+        ok: false,
+        error: 'no_video',
         pageUrl,
         pageKey,
         pendingStart: pending,
-      });
-    });
-    return true;
-  }
-
-  if (msg?.action === 'markStart') {
-    const video = getActiveVideo();
-    if (!video) {
-      sendResponse({ ok: false, error: 'no_video' });
-      return true;
+        clips,
+      };
     }
-    pendingStart = formatClipTime(video.currentTime);
-    savePendingToStorage(pendingStart).then(() => {
-      sendResponse({
-        ok: true,
-        pendingStart,
-        pageUrl: pageUrlForMeTube(location.href),
-        pageKey: storageKey(),
-      });
-    });
-    return true;
-  }
+    return {
+      ok: true,
+      currentTime: video.currentTime,
+      duration: video.duration,
+      formatted: formatClipTime(video.currentTime),
+      pageUrl,
+      pageKey,
+      pendingStart: pending,
+      clips,
+    };
+  });
+}
 
-  if (msg?.action === 'markEnd') {
-    ensurePendingLoaded().then((start) => {
-      const video = getActiveVideo();
-      if (!video) {
-        sendResponse({ ok: false, error: 'no_video' });
-        return;
-      }
-      if (!start) {
-        sendResponse({ ok: false, error: 'no_pending_start' });
-        return;
-      }
-      const end = formatClipTime(video.currentTime);
-      const clip = { start, end };
-      pendingStart = null;
-      savePendingToStorage(null).then(() => {
-        sendResponse({
-          ok: true,
-          clip,
-          pageUrl: pageUrlForMeTube(location.href),
-          pageKey: storageKey(),
-        });
-      });
-    });
-    return true;
-  }
+function injectOverlayStyles() {
+  if (document.getElementById('metube-clip-bar-style')) return;
+  const style = document.createElement('style');
+  style.id = 'metube-clip-bar-style';
+  style.textContent = `
+    #metube-clip-bar {
+      position: fixed;
+      right: 12px;
+      bottom: 72px;
+      z-index: 2147483646;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      max-width: min(420px, calc(100vw - 24px));
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(20, 20, 24, 0.92);
+      color: #f2f2f2;
+      font: 12px/1.3 system-ui, sans-serif;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+      pointer-events: auto;
+      user-select: none;
+    }
+    #metube-clip-bar button {
+      cursor: pointer;
+      border: 1px solid #555;
+      border-radius: 6px;
+      padding: 6px 10px;
+      background: #2d2d35;
+      color: #fff;
+      font: inherit;
+    }
+    #metube-clip-bar button:hover:not(:disabled) {
+      background: #3d3d48;
+    }
+    #metube-clip-bar button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    #metube-clip-bar button.metube-primary {
+      background: #0d6efd;
+      border-color: #0d6efd;
+    }
+    #metube-clip-bar .metube-status {
+      flex: 1 1 100%;
+      color: #9ecbff;
+      min-height: 1.2em;
+    }
+    #metube-clip-bar .metube-hide {
+      padding: 4px 8px;
+      font-size: 11px;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(style);
+}
 
-  if (msg?.action === 'clearPending') {
+function ensureOverlay() {
+  if (overlayRoot || !shouldShowBar()) return;
+  injectOverlayStyles();
+  const bar = document.createElement('div');
+  bar.id = 'metube-clip-bar';
+  bar.innerHTML = `
+    <button type="button" class="metube-primary" data-action="start">Start</button>
+    <button type="button" data-action="end" disabled>Ende</button>
+    <button type="button" data-action="clear" hidden>Abbrechen</button>
+    <span class="metube-status" data-role="status"></span>
+    <button type="button" class="metube-hide" data-action="hide" title="Leiste ausblenden">✕</button>
+  `;
+
+  bar.addEventListener(
+    'mousedown',
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    true,
+  );
+
+  bar.querySelector('[data-action="start"]').addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doMarkStart();
+  });
+
+  bar.querySelector('[data-action="end"]').addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doMarkEnd();
+  });
+
+  bar.querySelector('[data-action="clear"]').addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doClearPending();
+  });
+
+  bar.querySelector('[data-action="hide"]').addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    bar.remove();
+    overlayRoot = null;
+    chrome.storage.local.set({ metubeBarHidden: true });
+  });
+
+  document.documentElement.appendChild(bar);
+  overlayRoot = bar;
+  syncOverlayState();
+}
+
+function syncOverlayState() {
+  if (!overlayRoot) return;
+  const statusEl = overlayRoot.querySelector('[data-role="status"]');
+  const btnEnd = overlayRoot.querySelector('[data-action="end"]');
+  const btnClear = overlayRoot.querySelector('[data-action="clear"]');
+  ensurePendingLoaded().then(async (pending) => {
+    const clips = await loadClipsForPage();
+    btnEnd.disabled = !pending;
+    btnClear.hidden = !pending;
+    if (pending) {
+      statusEl.textContent = `Start ${pending} — spule zum Ende, dann Ende`;
+    } else if (clips.length) {
+      statusEl.textContent = `${clips.length} Clip(s) — Popup für MeTube / Queue`;
+    } else {
+      const v = getActiveVideo();
+      statusEl.textContent = v
+        ? `Jetzt: ${formatClipTime(v.currentTime)}`
+        : 'Kein Video';
+    }
+  });
+}
+
+function initBar() {
+  chrome.storage.local.get('metubeBarHidden').then((data) => {
+    if (data.metubeBarHidden) return;
+    if (shouldShowBar()) {
+      ensureOverlay();
+      return;
+    }
+    const obs = new MutationObserver(() => {
+      if (shouldShowBar()) {
+        obs.disconnect();
+        ensureOverlay();
+      }
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => obs.disconnect(), 60000);
+  });
+}
+
+let lastHref = location.href;
+setInterval(() => {
+  if (location.href !== lastHref) {
+    lastHref = location.href;
     pendingStart = null;
-    savePendingToStorage(null).then(() => sendResponse({ ok: true }));
+    if (overlayRoot) syncOverlayState();
+    else initBar();
+  }
+}, 800);
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.action === 'getVideoState') {
+    getVideoStateResponse().then(sendResponse);
     return true;
   }
-
+  if (msg?.action === 'markStart') {
+    doMarkStart().then(sendResponse);
+    return true;
+  }
+  if (msg?.action === 'markEnd') {
+    doMarkEnd().then(sendResponse);
+    return true;
+  }
+  if (msg?.action === 'clearPending') {
+    doClearPending().then(sendResponse);
+    return true;
+  }
+  if (msg?.action === 'showBar') {
+    chrome.storage.local.set({ metubeBarHidden: false }).then(() => {
+      initBar();
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
   return false;
 });
+
+initBar();
+setInterval(() => {
+  if (!overlayRoot && shouldShowBar()) {
+    chrome.storage.local.get('metubeBarHidden').then((d) => {
+      if (!d.metubeBarHidden) ensureOverlay();
+    });
+  } else if (overlayRoot) {
+    syncOverlayState();
+  }
+}, 2000);
