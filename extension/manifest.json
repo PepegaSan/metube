@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MeTube Clips · PepegaSan",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Mark clip times on any page with a video element and send them to your MeTube instance.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["<all_urls>"],
@@ -21,8 +21,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle",
-      "all_frames": true
+      "run_at": "document_idle"
     }
   ]
 }

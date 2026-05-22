@@ -79,11 +79,24 @@ function pageUrlForMeTube(href) {
   }
 }
 
+function safeVideoTime(video) {
+  if (!video) {
+    return 0;
+  }
+  try {
+    const t = video.currentTime;
+    return Number.isFinite(t) && t >= 0 ? t : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function formatClipTime(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 0) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n < 0) {
     return '0:00';
   }
-  const total = Math.floor(seconds);
+  const total = Math.floor(n);
   const s = total % 60;
   const m = Math.floor(total / 60) % 60;
   const h = Math.floor(total / 3600);
@@ -178,7 +191,7 @@ function doMarkStart() {
   if (!video) {
     return Promise.resolve({ ok: false, error: 'no_video' });
   }
-  pendingStart = formatClipTime(video.currentTime);
+  pendingStart = formatClipTime(safeVideoTime(video));
   return savePendingToStorage(pendingStart).then(() => {
     syncOverlayState();
     return {
@@ -199,7 +212,7 @@ function doMarkEnd() {
     if (!start) {
       return { ok: false, error: 'no_pending_start' };
     }
-    const end = formatClipTime(video.currentTime);
+    const end = formatClipTime(safeVideoTime(video));
     const clip = { start, end };
     pendingStart = null;
     return savePendingToStorage(null)
@@ -243,9 +256,9 @@ function getVideoStateResponse() {
     }
     return {
       ok: true,
-      currentTime: video.currentTime,
-      duration: video.duration,
-      formatted: formatClipTime(video.currentTime),
+      currentTime: safeVideoTime(video),
+      duration: Number.isFinite(video.duration) ? video.duration : 0,
+      formatted: formatClipTime(safeVideoTime(video)),
       pageUrl,
       pageKey,
       pendingStart: pending,
@@ -380,7 +393,7 @@ function syncOverlayState() {
     } else {
       const v = getActiveVideo();
       statusEl.textContent = v
-        ? `Jetzt: ${formatClipTime(v.currentTime)}`
+        ? `Jetzt: ${formatClipTime(safeVideoTime(v))}`
         : 'Kein Video';
     }
   });
