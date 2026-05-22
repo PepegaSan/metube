@@ -1,3 +1,5 @@
+import { normalizeStorageKey } from './page-key.js';
+
 /** @typedef {object} ExtensionSettings
  * @property {string} metubeBaseUrl
  * @property {string} downloadType
@@ -37,40 +39,31 @@ export async function saveSettings(patch) {
   await chrome.storage.sync.set(patch);
 }
 
-/** Clip list keyed by page URL for the current tab session in popup. */
 const CLIPS_KEY = 'clipDraftByUrl';
-/** In-point not yet paired with end — survives popup close. */
-const PENDING_START_KEY = 'pendingStartByUrl';
+
+/** @param {string} pageUrlOrKey */
+export function keyForPage(pageUrlOrKey) {
+  if (pageUrlOrKey.startsWith('youtube:')) {
+    return pageUrlOrKey;
+  }
+  return normalizeStorageKey(pageUrlOrKey);
+}
 
 /** @returns {Promise<Record<string, { start: string, end: string }[]>>} */
 export async function loadAllClipDrafts() {
-  const data = await chrome.storage.session.get(CLIPS_KEY);
+  const data = await chrome.storage.local.get(CLIPS_KEY);
   return data[CLIPS_KEY] || {};
 }
 
-/** @param {string} pageUrl @param {{ start: string, end: string }[]} clips */
-export async function saveClipDraft(pageUrl, clips) {
+/** @param {string} pageKey @param {{ start: string, end: string }[]} clips */
+export async function saveClipDraft(pageKey, clips) {
   const all = await loadAllClipDrafts();
-  all[pageUrl] = clips;
-  await chrome.storage.session.set({ [CLIPS_KEY]: all });
+  all[pageKey] = clips;
+  await chrome.storage.local.set({ [CLIPS_KEY]: all });
 }
 
-/** @param {string} pageUrl */
-export async function loadPendingStart(pageUrl) {
-  const data = await chrome.storage.session.get(PENDING_START_KEY);
-  const map = data[PENDING_START_KEY] || {};
-  const value = map[pageUrl];
-  return typeof value === 'string' && value ? value : null;
-}
-
-/** @param {string} pageUrl @param {string | null} start */
-export async function savePendingStart(pageUrl, start) {
-  const data = await chrome.storage.session.get(PENDING_START_KEY);
-  const map = { ...(data[PENDING_START_KEY] || {}) };
-  if (start) {
-    map[pageUrl] = start;
-  } else {
-    delete map[pageUrl];
-  }
-  await chrome.storage.session.set({ [PENDING_START_KEY]: map });
+/** @param {string} pageKey */
+export async function loadClipDraft(pageKey) {
+  const all = await loadAllClipDrafts();
+  return all[pageKey] ? [...all[pageKey]] : [];
 }

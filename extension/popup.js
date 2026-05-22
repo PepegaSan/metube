@@ -1,11 +1,5 @@
 import { buildMeTubeOpenUrl } from './lib/metube-api.js';
-import {
-  loadSettings,
-  saveClipDraft,
-  loadAllClipDrafts,
-  loadPendingStart,
-  savePendingStart,
-} from './lib/storage.js';
+import { loadSettings, saveClipDraft, loadClipDraft } from './lib/storage.js';
 
 const statusEl = document.getElementById('status');
 const pageUrlEl = document.getElementById('pageUrl');
@@ -19,8 +13,10 @@ const btnQueueMerge = document.getElementById('btnQueueMerge');
 const btnCancelPending = document.getElementById('btnCancelPending');
 const optionsLink = document.getElementById('optionsLink');
 
-/** @type {string | null} */
+/** MeTube download URL */
 let pageUrl = null;
+/** Stable draft key (youtube:ID, etc.) */
+let pageKey = null;
 /** @type {{ start: string, end: string }[]} */
 let clips = [];
 /** @type {string | null} */
@@ -37,9 +33,9 @@ async function getActiveTab() {
   return tab;
 }
 
-async function getVideoState(tabId) {
+async function sendTabMessage(tabId, message) {
   try {
-    return await chrome.tabs.sendMessage(tabId, { action: 'getVideoState' });
+    return await chrome.tabs.sendMessage(tabId, message);
   } catch {
     return { ok: false, error: 'no_content_script' };
   }
@@ -70,7 +66,6 @@ function renderClips() {
 }
 
 function updateButtons() {
-  const hasVideo = btnStart.disabled === false;
   const hasClips = clips.length > 0;
   btnOpen.disabled = !pageUrl || !hasClips;
   btnQueueEach.disabled = !pageUrl || !hasClips;
@@ -79,14 +74,29 @@ function updateButtons() {
     btnCancelPending.hidden = !pendingStart;
     btnCancelPending.disabled = !pendingStart;
   }
+  btnEnd.disabled = !pendingStart;
   pendingEl.textContent = pendingStart
-    ? `Start: ${pendingStart} — Video abspielen, dann Ende setzen`
+    ? `Start: ${pendingStart} — Video abspielen, Popup erneut öffnen, dann Ende setzen`
     : '';
 }
 
 async function persistClips() {
-  if (pageUrl) {
-    await saveClipDraft(pageUrl, clips);
+  if (pageKey) {
+    await saveClipDraft(pageKey, clips);
+  }
+}
+
+function applyState(state) {
+  if (state.pageUrl) {
+    pageUrl = state.pageUrl;
+    pageUrlEl.hidden = false;
+    pageUrlEl.textContent = pageUrl;
+  }
+  if (state.pageKey) {
+    pageKey = state.pageKey;
+  }
+  if (state.pendingStart) {
+    pendingStart = state.pendingStart;
   }
 }
 
@@ -96,73 +106,86 @@ async function refresh() {
     setStatus('Kein aktiver Tab.');
     return;
   }
-  const state = await getVideoState(tab.id);
-  if (!state?.ok) {
-    setStatus('Kein Video auf dieser Seite (oder Seite neu laden).');
-    btnStart.disabled = true;
-    btnEnd.disabled = true;
-    pageUrl = tab.url ? normalizeUrl(tab.url) : null;
-    return;
+
+  const state = await sendTabMessage(tab.id, { action: 'getVideoState' });
+
+  if (state?.pageKey) {
+    pageKey = state.pageKey;
+  } else if (tab.url) {
+    pageKey = null;
   }
-  pageUrl = state.pageUrl;
-  pageUrlEl.hidden = false;
-  pageUrlEl.textContent = pageUrl;
-  pendingStart = await loadPendingStart(pageUrl);
-  setStatus(`Aktuell: ${state.formatted}`);
-  btnStart.disabled = false;
-  btnEnd.disabled = !pendingStart;
-  const drafts = await loadAllClipDrafts();
-  clips = pageUrl && drafts[pageUrl] ? [...drafts[pageUrl]] : [];
+
+  if (state?.pageUrl) {
+    pageUrl = state.pageUrl;
+    pageUrlEl.hidden = false;
+    pageUrlEl.textContent = pageUrl;
+  } else if (tab.url && !tab.url.startsWith('chrome')) {
+    pageUrl = tab.url;
+    pageUrlEl.hidden = false;
+    pageUrlEl.textContent = pageUrl;
+  }
+
+  pendingStart = state?.pendingStart || null;
+
+  if (pageKey) {
+    clips = await loadClipDraft(pageKey);
+  }
+
+  if (state?.ok) {
+    setStatus(`Aktuell: ${state.formatted}`);
+    btnStart.disabled = false;
+  } else if (pendingStart) {
+    setStatus('Start gespeichert — Video abspielen, dann Ende setzen.');
+    btnStart.disabled = false;
+  } else {
+    setStatus('Kein Video auf dieser Seite (Seite einmal neu laden).');
+    btnStart.disabled = true;
+  }
+
   renderClips();
   updateButtons();
-}
-
-function normalizeUrl(href) {
-  try {
-    const u = new URL(href);
-    u.hash = '';
-    return u.toString();
-  } catch {
-    return href;
-  }
 }
 
 btnStart.addEventListener('click', async () => {
   const tab = await getActiveTab();
   if (!tab?.id) return;
-  const state = await getVideoState(tab.id);
-  if (!state?.ok) return;
-  pendingStart = state.formatted;
-  if (pageUrl) {
-    await savePendingStart(pageUrl, pendingStart);
+  const res = await sendTabMessage(tab.id, { action: 'markStart' });
+  if (!res?.ok) {
+    setStatus('Konnte Start nicht setzen — Video läuft?');
+    return;
   }
-  btnEnd.disabled = false;
+  applyState(res);
   updateButtons();
 });
 
 btnEnd.addEventListener('click', async () => {
-  if (!pendingStart) return;
   const tab = await getActiveTab();
   if (!tab?.id) return;
-  const state = await getVideoState(tab.id);
-  if (!state?.ok) return;
-  const end = state.formatted;
-  clips.push({ start: pendingStart, end });
-  pendingStart = null;
-  if (pageUrl) {
-    await savePendingStart(pageUrl, null);
+  const res = await sendTabMessage(tab.id, { action: 'markEnd' });
+  if (!res?.ok) {
+    if (res?.error === 'no_pending_start') {
+      setStatus('Kein Start gespeichert — zuerst Start setzen.');
+    } else {
+      setStatus('Konnte Ende nicht setzen.');
+    }
+    return;
   }
+  if (res.clip) {
+    clips.push(res.clip);
+  }
+  pendingStart = null;
+  applyState(res);
   await persistClips();
   renderClips();
   updateButtons();
 });
 
 btnCancelPending?.addEventListener('click', async () => {
-  pendingStart = null;
-  if (pageUrl) {
-    await savePendingStart(pageUrl, null);
+  const tab = await getActiveTab();
+  if (tab?.id) {
+    await sendTabMessage(tab.id, { action: 'clearPending' });
   }
-  btnEnd.disabled = true;
+  pendingStart = null;
   updateButtons();
 });
 
