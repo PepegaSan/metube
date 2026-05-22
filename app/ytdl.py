@@ -45,6 +45,41 @@ def _sanitize_path_component(value: Any) -> Any:
     return _WINDOWS_INVALID_PATH_CHARS.sub('_', value)
 
 
+def _format_clip_bound(value: Any) -> str:
+    if value is None:
+        return "none"
+    if isinstance(value, float):
+        if value == float("inf"):
+            return "inf"
+        if value == int(value):
+            return str(int(value))
+        return format(value, "g")
+    return str(value)
+
+
+def download_queue_key(url: str, clip_start=None, clip_end=None) -> str:
+    """Stable queue/history key; allows multiple clips from the same video URL."""
+    if clip_start is None and clip_end is None:
+        return url
+    return f"{url}#clip:{_format_clip_bound(clip_start)}-{_format_clip_bound(clip_end)}"
+
+
+def clip_autoname_prefix(clip_start=None, clip_end=None) -> str:
+    """Filename prefix segment so clips from the same title do not overwrite each other."""
+    if clip_start is None and clip_end is None:
+        return ""
+    return f"clip_{_format_clip_bound(clip_start)}-{_format_clip_bound(clip_end)}"
+
+
+def merge_custom_name_prefix(custom_name_prefix: str, clip_start=None, clip_end=None) -> str:
+    suffix = clip_autoname_prefix(clip_start, clip_end)
+    if not suffix:
+        return custom_name_prefix or ""
+    if custom_name_prefix:
+        return f"{custom_name_prefix}_{suffix}"
+    return suffix
+
+
 # Regex matching yt-dlp output-template field references, e.g. ``%(title)s``
 # or ``%(playlist_index)03d``.  Built from yt-dlp's own ``STR_FORMAT_RE_TMPL``
 # so that it stays in sync with upstream changes to the template syntax.
@@ -198,6 +233,7 @@ class DownloadInfo:
         self.id = id if len(custom_name_prefix) == 0 else f'{custom_name_prefix}.{id}'
         self.title = title if len(custom_name_prefix) == 0 else f'{custom_name_prefix}.{title}'
         self.url = url
+        self.queue_key = download_queue_key(url, clip_start, clip_end)
         self.quality = quality
         self.download_type = download_type
         self.codec = codec
@@ -292,6 +328,12 @@ class DownloadInfo:
             self.clip_start = None
         if not hasattr(self, "clip_end"):
             self.clip_end = None
+        if not hasattr(self, "queue_key"):
+            self.queue_key = download_queue_key(
+                self.url,
+                getattr(self, "clip_start", None),
+                getattr(self, "clip_end", None),
+            )
 
 
 _PERSISTED_DOWNLOAD_FIELDS = (
@@ -313,6 +355,7 @@ _PERSISTED_DOWNLOAD_FIELDS = (
     "ytdl_options_overrides",
     "clip_start",
     "clip_end",
+    "queue_key",
     "status",
     "timestamp",
     "error",
@@ -639,8 +682,11 @@ class PersistentQueue:
         self.dict = OrderedDict()
 
     def load(self):
-        for k, v in self.saved_items():
-            self.dict[k] = Download(None, None, None, None, getattr(v, 'quality', 'best'), getattr(v, 'format', 'any'), {}, v)
+        for file_key, v in self.saved_items():
+            key = getattr(v, "queue_key", None) or file_key
+            if key != file_key:
+                log.info("PersistentQueue:%s migrating key %s -> %s", self.identifier, file_key, key)
+            self.dict[key] = Download(None, None, None, None, getattr(v, 'quality', 'best'), getattr(v, 'format', 'any'), {}, v)
 
     def exists(self, key):
         return key in self.dict
@@ -716,7 +762,7 @@ class PersistentQueue:
         return items
 
     def put(self, value):
-        key = value.info.url
+        key = value.info.queue_key
         old = self.dict.get(key)
         self.dict[key] = value
         try:
@@ -795,10 +841,10 @@ class DownloadQueue:
                     pass
             download.info.status = 'error'
         download.close()
-        if self.queue.exists(download.info.url):
-            self.queue.delete(download.info.url)
+        if self.queue.exists(download.info.queue_key):
+            self.queue.delete(download.info.queue_key)
             if download.canceled:
-                asyncio.create_task(self.notifier.canceled(download.info.url))
+                asyncio.create_task(self.notifier.canceled(download.info.queue_key))
             else:
                 self.done.put(download)
                 asyncio.create_task(self.notifier.completed(download.info))
@@ -808,7 +854,7 @@ class DownloadQueue:
                     log.error(f'CLEAR_COMPLETED_AFTER is set to an invalid value "{self.config.CLEAR_COMPLETED_AFTER}", expected an integer number of seconds')
                     clear_after = 0
                 if clear_after > 0:
-                    task = asyncio.create_task(self.__auto_clear_after_delay(download.info.url, clear_after))
+                    task = asyncio.create_task(self.__auto_clear_after_delay(download.info.queue_key, clear_after))
                     task.add_done_callback(lambda t: log.error(f'Auto-clear task failed: {t.exception()}') if not t.cancelled() and t.exception() else None)
 
     async def __auto_clear_after_delay(self, url, delay_seconds):
@@ -1014,30 +1060,34 @@ class DownloadQueue:
             if key in self._canceled_urls:
                 log.info(f'Skipping canceled URL: {entry.get("title") or key}')
                 return {'status': 'ok'}
-            if not self.queue.exists(key):
-                dl = DownloadInfo(
-                    id=entry['id'],
-                    title=entry.get('title') or entry['id'],
-                    url=key,
-                    quality=quality,
-                    download_type=download_type,
-                    codec=codec,
-                    format=format,
-                    folder=folder,
-                    custom_name_prefix=custom_name_prefix,
-                    error=error,
-                    entry=entry,
-                    playlist_item_limit=playlist_item_limit,
-                    split_by_chapters=split_by_chapters,
-                    chapter_template=chapter_template,
-                    subtitle_language=subtitle_language,
-                    subtitle_mode=subtitle_mode,
-                    ytdl_options_presets=ytdl_options_presets,
-                    ytdl_options_overrides=ytdl_options_overrides,
-                    clip_start=clip_start,
-                    clip_end=clip_end,
-                )
-                await self.__add_download(dl, auto_start)
+            queue_key = download_queue_key(key, clip_start, clip_end)
+            if self.queue.exists(queue_key) or self.pending.exists(queue_key):
+                log.info('Download already queued for %s', queue_key)
+                return {'status': 'ok', 'msg': 'This clip is already in the queue'}
+            effective_prefix = merge_custom_name_prefix(custom_name_prefix, clip_start, clip_end)
+            dl = DownloadInfo(
+                id=entry['id'],
+                title=entry.get('title') or entry['id'],
+                url=key,
+                quality=quality,
+                download_type=download_type,
+                codec=codec,
+                format=format,
+                folder=folder,
+                custom_name_prefix=effective_prefix,
+                error=error,
+                entry=entry,
+                playlist_item_limit=playlist_item_limit,
+                split_by_chapters=split_by_chapters,
+                chapter_template=chapter_template,
+                subtitle_language=subtitle_language,
+                subtitle_mode=subtitle_mode,
+                ytdl_options_presets=ytdl_options_presets,
+                ytdl_options_overrides=ytdl_options_overrides,
+                clip_start=clip_start,
+                clip_end=clip_end,
+            )
+            await self.__add_download(dl, auto_start)
             return {'status': 'ok'}
         return {'status': 'error', 'msg': f'Unsupported resource "{etype}"'}
 

@@ -1077,7 +1077,11 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
       if (status.status === 'error' && !this.cancelRequested) {
         alert(`Error adding URL: ${status.msg}`);
       } else if (status.status !== 'error') {
-        this.addUrl = '';
+        if (status.msg) {
+          alert(status.msg);
+        } else {
+          this.addUrl = '';
+        }
       }
       this.resetAddState();
     });

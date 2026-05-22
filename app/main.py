@@ -665,12 +665,14 @@ def parse_download_options(post: dict) -> dict:
         clip_end = None
     else:
         cleaned_url, url_t = _extract_t_query_from_url(url)
-        if url_t is not None:
-            url = cleaned_url
         explicit_start = _optional_clip_field(clip_start_raw)
         explicit_end = _optional_clip_field(clip_end_raw)
         explicit_start_provided = _clip_field_provided_in_post(clip_start_raw)
         explicit_end_provided = _clip_field_provided_in_post(clip_end_raw)
+        if explicit_start_provided or explicit_end_provided:
+            url = cleaned_url
+        elif url_t is not None:
+            url = cleaned_url
         if explicit_start_provided:
             clip_start = explicit_start
         elif explicit_end_provided:

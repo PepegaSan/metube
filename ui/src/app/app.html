@@ -436,7 +436,7 @@
                       class="form-control"
                       name="clipStart"
                       [(ngModel)]="clipStart"
-                      (change)="clipStartChanged()"
+                      (ngModelChange)="clipStartChanged()"
                       placeholder="e.g. 2:26"
                       [disabled]="addInProgress || subscribeInProgress || downloads.loading"
                       ngbTooltip="Optional start time (seconds, M:SS, or H:MM:SS). Blank = from start or YouTube &t= in URL.">
@@ -449,7 +449,7 @@
                       class="form-control"
                       name="clipEnd"
                       [(ngModel)]="clipEnd"
-                      (change)="clipEndChanged()"
+                      (ngModelChange)="clipEndChanged()"
                       placeholder="e.g. 3:24"
                       [disabled]="addInProgress || subscribeInProgress || downloads.loading"
                       ngbTooltip="Optional end time. Blank = until end of media.">
