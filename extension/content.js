@@ -81,56 +81,40 @@ function mtStorageLocalGet(keys) {
 
 function mtStorageLocalSet(items) {
   if (handleInvalidExtensionContext()) {
-    return Promise.reject(new Error('context_invalidated'));
+    return Promise.resolve();
   }
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (!chrome?.storage?.local) {
-      reject(new Error('no_storage'));
+      resolve();
       return;
     }
     try {
       chrome.storage.local.set(items, () => {
-        if (handleInvalidExtensionContext()) {
-          reject(new Error('context_invalidated'));
-          return;
-        }
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
         resolve();
       });
-    } catch (e) {
+    } catch {
       handleInvalidExtensionContext();
-      reject(e);
+      resolve();
     }
   });
 }
 
 function mtStorageLocalRemove(keys) {
   if (handleInvalidExtensionContext()) {
-    return Promise.reject(new Error('context_invalidated'));
+    return Promise.resolve();
   }
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (!chrome?.storage?.local) {
-      reject(new Error('no_storage'));
+      resolve();
       return;
     }
     try {
       chrome.storage.local.remove(keys, () => {
-        if (handleInvalidExtensionContext()) {
-          reject(new Error('context_invalidated'));
-          return;
-        }
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
         resolve();
       });
-    } catch (e) {
+    } catch {
       handleInvalidExtensionContext();
-      reject(e);
+      resolve();
     }
   });
 }
@@ -243,6 +227,9 @@ function shouldShowBar() {
 
 let pendingStart = null;
 let overlayRoot = null;
+let sessionBarHidden = false;
+/** @type {Record<string, { start: string, end: string }[]>} */
+const sessionClipsByKey = {};
 
 function storageKey() {
   return normalizeStorageKey(location.href);
@@ -280,20 +267,46 @@ function ensurePendingLoaded() {
 
 async function loadClipsForPage() {
   const key = storageKey();
+  if (sessionClipsByKey[key]?.length) {
+    return [...sessionClipsByKey[key]];
+  }
   const data = await mtStorageLocalGet(CLIPS_KEY);
   const all = data[CLIPS_KEY] || {};
-  return all[key] ? [...all[key]] : [];
+  const list = all[key] ? [...all[key]] : [];
+  sessionClipsByKey[key] = list;
+  return list;
 }
 
 async function appendClip(clip) {
   const key = storageKey();
+  const list = sessionClipsByKey[key] ? [...sessionClipsByKey[key]] : [];
+  list.push(clip);
+  sessionClipsByKey[key] = list;
   const data = await mtStorageLocalGet(CLIPS_KEY);
   const all = data[CLIPS_KEY] || {};
-  const list = all[key] ? [...all[key]] : [];
-  list.push(clip);
   all[key] = list;
   await mtStorageLocalSet({ [CLIPS_KEY]: all });
   return list;
+}
+
+function updateOverlayUiNow() {
+  if (!overlayRoot) return;
+  const statusEl = overlayRoot.querySelector('[data-role="status"]');
+  const btnEnd = overlayRoot.querySelector('[data-action="end"]');
+  const btnClear = overlayRoot.querySelector('[data-action="clear"]');
+  if (!statusEl || !btnEnd || !btnClear) return;
+  btnEnd.disabled = !pendingStart;
+  btnClear.hidden = !pendingStart;
+  const key = storageKey();
+  const clipCount = sessionClipsByKey[key]?.length ?? 0;
+  if (pendingStart) {
+    statusEl.textContent = `Start ${pendingStart} — spule zum Ende, dann Ende`;
+  } else if (clipCount > 0) {
+    statusEl.textContent = `${clipCount} Clip(s) — Popup für MeTube / Queue`;
+  } else {
+    const v = getActiveVideo();
+    statusEl.textContent = v ? `Jetzt: ${formatClipTime(safeVideoTime(v))}` : 'Kein Video';
+  }
 }
 
 function doMarkStart() {
@@ -302,7 +315,9 @@ function doMarkStart() {
     return Promise.resolve({ ok: false, error: 'no_video' });
   }
   pendingStart = formatClipTime(safeVideoTime(video));
+  updateOverlayUiNow();
   return savePendingToStorage(pendingStart).then(() => {
+    updateOverlayUiNow();
     syncOverlayState();
     return {
       ok: true,
@@ -325,9 +340,11 @@ function doMarkEnd() {
     const end = formatClipTime(safeVideoTime(video));
     const clip = { start, end };
     pendingStart = null;
+    updateOverlayUiNow();
     return savePendingToStorage(null)
       .then(() => appendClip(clip))
       .then((clips) => {
+        updateOverlayUiNow();
         syncOverlayState();
         return {
           ok: true,
@@ -342,8 +359,9 @@ function doMarkEnd() {
 
 function doClearPending() {
   pendingStart = null;
+  updateOverlayUiNow();
   return savePendingToStorage(null).then(() => {
-    syncOverlayState();
+    updateOverlayUiNow();
     return { ok: true };
   });
 }
@@ -386,7 +404,8 @@ function injectOverlayStyles() {
       position: fixed;
       right: 12px;
       bottom: 72px;
-      z-index: 2147483646;
+      z-index: 2147483647;
+      isolation: isolate;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
@@ -409,6 +428,9 @@ function injectOverlayStyles() {
       background: #2d2d35;
       color: #fff;
       font: inherit;
+      pointer-events: auto;
+      position: relative;
+      z-index: 1;
     }
     #metube-clip-bar button:hover:not(:disabled) {
       background: #3d3d48;
@@ -447,36 +469,39 @@ function ensureOverlay() {
     <button type="button" class="metube-hide" data-action="hide" title="Leiste ausblenden">✕</button>
   `;
 
-  bar.addEventListener(
-    'mousedown',
-    (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    },
-    true,
-  );
+  function bindBarButton(selector, handler) {
+    const btn = bar.querySelector(selector);
+    let busy = false;
+    btn.addEventListener(
+      'click',
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (busy) return;
+        busy = true;
+        Promise.resolve(handler(e)).finally(() => {
+          busy = false;
+        });
+      },
+      true,
+    );
+  }
 
-  bar.querySelector('[data-action="start"]').addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    doMarkStart().catch(() => syncOverlayState());
+  bindBarButton('[data-action="start"]', () => {
+    doMarkStart().catch(() => updateOverlayUiNow());
   });
 
-  bar.querySelector('[data-action="end"]').addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    doMarkEnd().catch(() => syncOverlayState());
+  bindBarButton('[data-action="end"]', () => {
+    doMarkEnd().catch(() => updateOverlayUiNow());
   });
 
-  bar.querySelector('[data-action="clear"]').addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    doClearPending();
+  bindBarButton('[data-action="clear"]', () => {
+    doClearPending().catch(() => updateOverlayUiNow());
   });
 
-  bar.querySelector('[data-action="hide"]').addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  bindBarButton('[data-action="hide"]', () => {
+    sessionBarHidden = true;
     bar.remove();
     overlayRoot = null;
     mtStorageLocalSet({ metubeBarHidden: true });
@@ -518,8 +543,9 @@ function syncOverlayState() {
 }
 
 function initBar() {
+  if (sessionBarHidden) return;
   mtStorageLocalGet('metubeBarHidden').then((data) => {
-    if (data.metubeBarHidden) return;
+    if (data.metubeBarHidden || sessionBarHidden) return;
     if (shouldShowBar()) {
       ensureOverlay();
       return;
