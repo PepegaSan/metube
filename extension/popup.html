@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="popup.css" />
+  <title>MeTube Clips</title>
+</head>
+<body>
+  <header>
+    <h1>MeTube Clips</h1>
+    <a href="#" id="optionsLink" title="Einstellungen">⚙</a>
+  </header>
+  <p id="status" class="status">…</p>
+  <p id="pageUrl" class="url" hidden></p>
+  <div class="markers">
+    <button type="button" id="btnStart" disabled>Start setzen</button>
+    <button type="button" id="btnEnd" disabled>Ende setzen</button>
+    <span id="pending" class="pending"></span>
+  </div>
+  <ul id="clipList" class="clips"></ul>
+  <div class="actions">
+    <button type="button" id="btnOpen" class="primary" disabled>In MeTube öffnen</button>
+    <button type="button" id="btnQueueEach" disabled>In Queue (einzeln)</button>
+    <button type="button" id="btnQueueMerge" disabled>In Queue (merged)</button>
+  </div>
+  <p class="hint">Funktioniert auf jeder Seite mit einem <code>&lt;video&gt;</code>-Element. MeTube braucht <code>CORS_ALLOWED_ORIGINS=*</code>.</p>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

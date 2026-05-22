@@ -17,7 +17,7 @@ Key capabilities:
 
 For **Video** or **Audio**, use **Clip start** / **Clip end** (`90`, `1:30`, `H:MM:SS`), or **Batch clips** in Advanced Options (several ranges for the same URL — separate files or one merged file). Prefer a URL without `&t=` when setting times manually. Not available for subscriptions.
 
-**PepegaSan browser extension:** [metube-extension](https://github.com/PepegaSan/metube-extension) marks times on any page with a `<video>` player and either opens MeTube prefilled (`?url=…&clips=…`) or queues via API. Requires `CORS_ALLOWED_ORIGINS=*`.
+**PepegaSan clip extension:** sources in [`extension/`](extension/) — marks times on any page with a `<video>` player, opens MeTube prefilled (`?url=…&clips=…`) or queues via API. Requires `CORS_ALLOWED_ORIGINS=*` (see [extension/README.md](extension/README.md)).
 
 ## 🐳 Run using Docker
 
@@ -244,6 +244,8 @@ Since browser extensions make requests from their own origin (`chrome-extension:
 __Chrome:__ contributed by [Rpsl](https://github.com/rpsl). You can install it from [Google Chrome Webstore](https://chrome.google.com/webstore/detail/metube-downloader/fbmkmdnlhacefjljljlbhkodfmfkijdh) or use developer mode and install [from sources](https://github.com/Rpsl/metube-browser-extension).
 
 __Firefox:__ contributed by [nanocortex](https://github.com/nanocortex). You can install it from [Firefox Addons](https://addons.mozilla.org/en-US/firefox/addon/metube-downloader) or get sources from [here](https://github.com/nanocortex/metube-firefox-addon).
+
+**PepegaSan clip extension (fork only):** load unpacked from [`extension/`](extension/) in this repository. Marks in/out on any `<video>` page; see [extension/README.md](extension/README.md).
 
 ## 📱 iOS Shortcut
 
