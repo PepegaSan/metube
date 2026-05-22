@@ -302,7 +302,7 @@ function updateOverlayUiNow() {
   if (pendingStart) {
     statusEl.textContent = `Start ${pendingStart} — spule zum Ende, dann Ende`;
   } else if (clipCount > 0) {
-    statusEl.textContent = `${clipCount} Clip(s) — Popup für MeTube / Queue`;
+    statusEl.textContent = `${clipCount} Clip(s) — Extension-Popup: Queue`;
   } else {
     const v = getActiveVideo();
     statusEl.textContent = v ? `Jetzt: ${formatClipTime(safeVideoTime(v))}` : 'Kein Video';
@@ -526,7 +526,7 @@ function syncOverlayState() {
         if (pending) {
           statusEl.textContent = `Start ${pending} — spule zum Ende, dann Ende`;
         } else if (clips.length) {
-          statusEl.textContent = `${clips.length} Clip(s) — Popup für MeTube / Queue`;
+          statusEl.textContent = `${clips.length} Clip(s) — Extension-Popup: Queue`;
         } else {
           const v = getActiveVideo();
           statusEl.textContent = v

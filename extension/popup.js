@@ -1,4 +1,3 @@
-import { buildMeTubeOpenUrl } from './lib/metube-api.js';
 import { loadSettings, saveClipDraft } from './lib/storage.js';
 
 const statusEl = document.getElementById('status');
@@ -7,7 +6,6 @@ const pendingEl = document.getElementById('pending');
 const clipListEl = document.getElementById('clipList');
 const btnStart = document.getElementById('btnStart');
 const btnEnd = document.getElementById('btnEnd');
-const btnOpen = document.getElementById('btnOpen');
 const btnQueueEach = document.getElementById('btnQueueEach');
 const btnQueueMerge = document.getElementById('btnQueueMerge');
 const btnCancelPending = document.getElementById('btnCancelPending');
@@ -54,7 +52,6 @@ function renderClips() {
 
 function updateButtons() {
   const hasClips = clips.length > 0;
-  btnOpen.disabled = !pageUrl || !hasClips;
   btnQueueEach.disabled = !pageUrl || !hasClips;
   btnQueueMerge.disabled = !pageUrl || clips.length < 2;
   if (btnCancelPending) {
@@ -96,7 +93,7 @@ async function refresh() {
     setStatus('Start gespeichert — Ende auf der Seiten-Leiste oder hier');
     btnStart.disabled = false;
   } else if (clips.length) {
-    setStatus(`${clips.length} Clip(s) bereit`);
+    setStatus(`${clips.length} Clip(s) — unten Queue senden`);
     btnStart.disabled = false;
   } else {
     setStatus(state?.error === 'no_video' ? 'Kein Video — Seite neu laden' : 'Verbinde…');
@@ -142,24 +139,19 @@ btnShowBar?.addEventListener('click', () => {
   sendBg('showBar').then(() => setStatus('Leiste auf der Seite sollte sichtbar sein'));
 });
 
-btnOpen.addEventListener('click', async () => {
+btnQueueEach.addEventListener('click', () => sendQueue(false));
+btnQueueMerge.addEventListener('click', () => sendQueue(true));
+
+async function sendQueue(mergeClips) {
   const state = await sendBg('getVideoState');
   if (state?.pageUrl) pageUrl = state.pageUrl;
   if (Array.isArray(state?.clips) && state.clips.length) {
     clips = [...state.clips];
   }
   if (!pageUrl || !clips.length) {
-    setStatus('Keine Clips — zuerst Start/Ende auf der Seiten-Leiste');
+    setStatus('Keine Clips — zuerst Start/Ende setzen');
     return;
   }
-  const settings = await loadSettings();
-  chrome.tabs.create({ url: buildMeTubeOpenUrl(settings.metubeBaseUrl, pageUrl, clips) });
-});
-
-btnQueueEach.addEventListener('click', () => sendQueue(false));
-btnQueueMerge.addEventListener('click', () => sendQueue(true));
-
-async function sendQueue(mergeClips) {
   setStatus('Sende…');
   const result = await chrome.runtime.sendMessage({
     action: 'queueClips',
