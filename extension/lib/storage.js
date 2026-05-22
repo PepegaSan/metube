@@ -39,6 +39,8 @@ export async function saveSettings(patch) {
 
 /** Clip list keyed by page URL for the current tab session in popup. */
 const CLIPS_KEY = 'clipDraftByUrl';
+/** In-point not yet paired with end — survives popup close. */
+const PENDING_START_KEY = 'pendingStartByUrl';
 
 /** @returns {Promise<Record<string, { start: string, end: string }[]>>} */
 export async function loadAllClipDrafts() {
@@ -51,4 +53,24 @@ export async function saveClipDraft(pageUrl, clips) {
   const all = await loadAllClipDrafts();
   all[pageUrl] = clips;
   await chrome.storage.session.set({ [CLIPS_KEY]: all });
+}
+
+/** @param {string} pageUrl */
+export async function loadPendingStart(pageUrl) {
+  const data = await chrome.storage.session.get(PENDING_START_KEY);
+  const map = data[PENDING_START_KEY] || {};
+  const value = map[pageUrl];
+  return typeof value === 'string' && value ? value : null;
+}
+
+/** @param {string} pageUrl @param {string | null} start */
+export async function savePendingStart(pageUrl, start) {
+  const data = await chrome.storage.session.get(PENDING_START_KEY);
+  const map = { ...(data[PENDING_START_KEY] || {}) };
+  if (start) {
+    map[pageUrl] = start;
+  } else {
+    delete map[pageUrl];
+  }
+  await chrome.storage.session.set({ [PENDING_START_KEY]: map });
 }

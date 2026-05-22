@@ -1,5 +1,11 @@
 import { buildMeTubeOpenUrl } from './lib/metube-api.js';
-import { loadSettings, saveClipDraft, loadAllClipDrafts } from './lib/storage.js';
+import {
+  loadSettings,
+  saveClipDraft,
+  loadAllClipDrafts,
+  loadPendingStart,
+  savePendingStart,
+} from './lib/storage.js';
 
 const statusEl = document.getElementById('status');
 const pageUrlEl = document.getElementById('pageUrl');
@@ -10,6 +16,7 @@ const btnEnd = document.getElementById('btnEnd');
 const btnOpen = document.getElementById('btnOpen');
 const btnQueueEach = document.getElementById('btnQueueEach');
 const btnQueueMerge = document.getElementById('btnQueueMerge');
+const btnCancelPending = document.getElementById('btnCancelPending');
 const optionsLink = document.getElementById('optionsLink');
 
 /** @type {string | null} */
@@ -68,7 +75,13 @@ function updateButtons() {
   btnOpen.disabled = !pageUrl || !hasClips;
   btnQueueEach.disabled = !pageUrl || !hasClips;
   btnQueueMerge.disabled = !pageUrl || clips.length < 2;
-  pendingEl.textContent = pendingStart ? `Start: ${pendingStart}` : '';
+  if (btnCancelPending) {
+    btnCancelPending.hidden = !pendingStart;
+    btnCancelPending.disabled = !pendingStart;
+  }
+  pendingEl.textContent = pendingStart
+    ? `Start: ${pendingStart} — Video abspielen, dann Ende setzen`
+    : '';
 }
 
 async function persistClips() {
@@ -94,6 +107,7 @@ async function refresh() {
   pageUrl = state.pageUrl;
   pageUrlEl.hidden = false;
   pageUrlEl.textContent = pageUrl;
+  pendingStart = await loadPendingStart(pageUrl);
   setStatus(`Aktuell: ${state.formatted}`);
   btnStart.disabled = false;
   btnEnd.disabled = !pendingStart;
@@ -119,6 +133,9 @@ btnStart.addEventListener('click', async () => {
   const state = await getVideoState(tab.id);
   if (!state?.ok) return;
   pendingStart = state.formatted;
+  if (pageUrl) {
+    await savePendingStart(pageUrl, pendingStart);
+  }
   btnEnd.disabled = false;
   updateButtons();
 });
@@ -132,8 +149,20 @@ btnEnd.addEventListener('click', async () => {
   const end = state.formatted;
   clips.push({ start: pendingStart, end });
   pendingStart = null;
+  if (pageUrl) {
+    await savePendingStart(pageUrl, null);
+  }
   await persistClips();
   renderClips();
+  updateButtons();
+});
+
+btnCancelPending?.addEventListener('click', async () => {
+  pendingStart = null;
+  if (pageUrl) {
+    await savePendingStart(pageUrl, null);
+  }
+  btnEnd.disabled = true;
   updateButtons();
 });
 
