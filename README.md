@@ -394,4 +394,4 @@ Note that if you're running the server in VSCode, your downloads will go to your
 
 ## 🍴 Fork notes (PepegaSan)
 
-This repository is a fork of [alexta69/metube](https://github.com/alexta69/metube). **Fork-only changelog and upstream sync** — see **[FORK.md](FORK.md)** (append a row for each of your commits).
+This repository is a fork of [alexta69/metube](https://github.com/alexta69/metube). **Fork-only changes** are listed in **[FORK.md](FORK.md)** (append a row for each of your commits).
