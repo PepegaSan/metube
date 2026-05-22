@@ -85,8 +85,9 @@ function pendingStorageItemKey() {
 }
 
 function loadPendingFromStorage() {
-  return chrome.storage.local.get(pendingStorageItemKey()).then((data) => {
-    const value = data[pendingStorageItemKey()];
+  const key = pendingStorageItemKey();
+  return mtStorageLocalGet(key).then((data) => {
+    const value = data[key];
     return typeof value === 'string' && value ? value : null;
   });
 }
@@ -94,9 +95,9 @@ function loadPendingFromStorage() {
 function savePendingToStorage(value) {
   const key = pendingStorageItemKey();
   if (value) {
-    return chrome.storage.local.set({ [key]: value });
+    return mtStorageLocalSet({ [key]: value });
   }
-  return chrome.storage.local.remove(key);
+  return mtStorageLocalRemove(key);
 }
 
 function ensurePendingLoaded() {
@@ -111,19 +112,19 @@ function ensurePendingLoaded() {
 
 async function loadClipsForPage() {
   const key = storageKey();
-  const data = await chrome.storage.local.get(CLIPS_KEY);
+  const data = await mtStorageLocalGet(CLIPS_KEY);
   const all = data[CLIPS_KEY] || {};
   return all[key] ? [...all[key]] : [];
 }
 
 async function appendClip(clip) {
   const key = storageKey();
-  const data = await chrome.storage.local.get(CLIPS_KEY);
+  const data = await mtStorageLocalGet(CLIPS_KEY);
   const all = data[CLIPS_KEY] || {};
   const list = all[key] ? [...all[key]] : [];
   list.push(clip);
   all[key] = list;
-  await chrome.storage.local.set({ [CLIPS_KEY]: all });
+  await mtStorageLocalSet({ [CLIPS_KEY]: all });
   return list;
 }
 
@@ -310,7 +311,7 @@ function ensureOverlay() {
     e.stopPropagation();
     bar.remove();
     overlayRoot = null;
-    chrome.storage.local.set({ metubeBarHidden: true });
+    mtStorageLocalSet({ metubeBarHidden: true });
   });
 
   document.documentElement.appendChild(bar);
@@ -341,7 +342,7 @@ function syncOverlayState() {
 }
 
 function initBar() {
-  chrome.storage.local.get('metubeBarHidden').then((data) => {
+  mtStorageLocalGet('metubeBarHidden').then((data) => {
     if (data.metubeBarHidden) return;
     if (shouldShowBar()) {
       ensureOverlay();
@@ -386,7 +387,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.action === 'showBar') {
-    chrome.storage.local.set({ metubeBarHidden: false }).then(() => {
+    mtStorageLocalSet({ metubeBarHidden: false }).then(() => {
       initBar();
       sendResponse({ ok: true });
     });
@@ -398,7 +399,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 initBar();
 setInterval(() => {
   if (!overlayRoot && shouldShowBar()) {
-    chrome.storage.local.get('metubeBarHidden').then((d) => {
+    mtStorageLocalGet('metubeBarHidden').then((d) => {
       if (!d.metubeBarHidden) ensureOverlay();
     });
   } else if (overlayRoot) {
