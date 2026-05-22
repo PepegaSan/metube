@@ -708,6 +708,43 @@ def parse_download_options(post: dict) -> dict:
     }
 
 
+def parse_clips_list(raw) -> list[tuple[float, float]]:
+    if not isinstance(raw, list) or len(raw) == 0:
+        raise web.HTTPBadRequest(reason='clips must be a non-empty array')
+    if len(raw) > 50:
+        raise web.HTTPBadRequest(reason='clips supports at most 50 ranges per batch')
+    parsed: list[tuple[float, float]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise web.HTTPBadRequest(reason=f'clips[{index}] must be an object with start and end')
+        try:
+            start = _parse_clip_timestamp_value(item.get('start'))
+            end = _parse_clip_timestamp_value(item.get('end'))
+        except web.HTTPBadRequest as exc:
+            raise web.HTTPBadRequest(reason=f'clips[{index}]: {exc.reason}') from exc
+        if end <= start:
+            raise web.HTTPBadRequest(reason=f'clips[{index}]: end must be greater than start')
+        parsed.append((start, end))
+    return parsed
+
+
+@routes.post(config.URL_PREFIX + 'add-batch')
+async def add_batch(request):
+    log.info('Received request to add batch clips')
+    post = await _read_json_request(request)
+    try:
+        merge_clips = bool(post.get('merge_clips', False))
+        clips = parse_clips_list(post.get('clips'))
+        base_post = {k: v for k, v in post.items() if k not in ('clips', 'merge_clips')}
+        base_post['clip_start'] = None
+        base_post['clip_end'] = None
+        o = parse_download_options(base_post)
+    except web.HTTPBadRequest:
+        raise
+    status = await dqueue.add_batch(o, clips, merge_clips)
+    return web.Response(text=serializer.encode(status))
+
+
 @routes.post(config.URL_PREFIX + 'add')
 async def add(request):
     log.info("Received request to add download")
@@ -1076,6 +1113,7 @@ async def add_cors(request):
     return web.Response(text=serializer.encode({"status": "ok"}))
 
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'add', add_cors)
+app.router.add_route('OPTIONS', config.URL_PREFIX + 'add-batch', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'cancel-add', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscribe', add_cors)
 app.router.add_route('OPTIONS', config.URL_PREFIX + 'subscriptions', add_cors)

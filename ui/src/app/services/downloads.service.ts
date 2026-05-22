@@ -26,6 +26,11 @@ export interface AddDownloadPayload {
   clipEnd?: string;
 }
 
+export interface BatchClipInput {
+  start: string;
+  end: string;
+}
+
 /** Map key for queue/done — matches backend PersistentQueue key. */
 export function downloadMapKey(dl: Pick<Download, 'url' | 'queue_key'>): string {
   return dl.queue_key ?? dl.url;
@@ -178,6 +183,31 @@ export class DownloadsService {
       body['clip_start'] = '0';
     }
     return this.http.post<Status>('add', body).pipe(
+      catchError(this.handleHTTPError)
+    );
+  }
+
+  public addBatch(payload: AddDownloadPayload, clips: BatchClipInput[], mergeClips: boolean) {
+    const body: Record<string, unknown> = {
+      url: payload.url,
+      download_type: payload.downloadType,
+      codec: payload.codec,
+      quality: payload.quality,
+      format: payload.format,
+      folder: payload.folder,
+      custom_name_prefix: payload.customNamePrefix,
+      playlist_item_limit: payload.playlistItemLimit,
+      auto_start: payload.autoStart,
+      split_by_chapters: payload.splitByChapters,
+      chapter_template: payload.chapterTemplate,
+      subtitle_language: payload.subtitleLanguage,
+      subtitle_mode: payload.subtitleMode,
+      ytdl_options_presets: payload.ytdlOptionsPresets,
+      ytdl_options_overrides: payload.ytdlOptionsOverrides,
+      merge_clips: mergeClips,
+      clips: clips.map((c) => ({ start: c.start.trim(), end: c.end.trim() })),
+    };
+    return this.http.post<Status>('add-batch', body).pipe(
       catchError(this.handleHTTPError)
     );
   }

@@ -83,6 +83,7 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   chapterTemplate: string;
   clipStart = '';
   clipEnd = '';
+  batchClipRows: { start: string; end: string }[] = [{ start: '', end: '' }];
   subtitleLanguage: string;
   subtitleMode: string;
   ytdlOptionsPresets: string[] = [];
@@ -1055,6 +1056,57 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
       clipStart: overrides.clipStart ?? this.clipStart,
       clipEnd: overrides.clipEnd ?? this.clipEnd,
     };
+  }
+
+  addBatchClipRow() {
+    this.batchClipRows.push({ start: '', end: '' });
+  }
+
+  removeBatchClipRow(index: number) {
+    if (this.batchClipRows.length > 1) {
+      this.batchClipRows.splice(index, 1);
+    }
+  }
+
+  hasValidBatchClips(): boolean {
+    return this.batchClipRows.some(
+      (row) => Boolean(row.start?.trim()) && Boolean(row.end?.trim()),
+    );
+  }
+
+  addBatchDownload(mergeClips: boolean) {
+    if (!this.addUrl?.trim()) {
+      alert('Enter a video URL first.');
+      return;
+    }
+    const clips = this.batchClipRows
+      .filter((row) => row.start.trim() && row.end.trim())
+      .map((row) => ({ start: row.start.trim(), end: row.end.trim() }));
+    if (!clips.length) {
+      alert('Add at least one row with start and end times.');
+      return;
+    }
+    const payload = this.buildAddPayload();
+    if (!this.validateYtdlOptionsOverrides(payload.ytdlOptionsOverrides)) {
+      return;
+    }
+    this.addInProgress = true;
+    this.cancelRequested = false;
+    this.addRequestSub?.unsubscribe();
+    this.addRequestSub = this.downloads
+      .addBatch(payload, clips, mergeClips)
+      .subscribe((status: Status) => {
+        if (status.status === 'error' && !this.cancelRequested) {
+          alert(`Error adding batch: ${status.msg}`);
+        } else if (status.status !== 'error') {
+          if (status.msg) {
+            alert(status.msg);
+          } else {
+            this.addUrl = '';
+          }
+        }
+        this.resetAddState();
+      });
   }
 
   addDownload(overrides: Partial<AddDownloadPayload> = {}) {
