@@ -1,5 +1,50 @@
 const CLIPS_KEY = 'clipDraftByUrl';
 
+/** chrome.storage.local — always via callback (content scripts). */
+function mtStorageLocalGet(keys) {
+  return new Promise((resolve) => {
+    if (!chrome?.storage?.local) {
+      resolve({});
+      return;
+    }
+    chrome.storage.local.get(keys, (data) => {
+      resolve(chrome.runtime.lastError ? {} : data || {});
+    });
+  });
+}
+
+function mtStorageLocalSet(items) {
+  return new Promise((resolve, reject) => {
+    if (!chrome?.storage?.local) {
+      reject(new Error('no_storage'));
+      return;
+    }
+    chrome.storage.local.set(items, () => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function mtStorageLocalRemove(keys) {
+  return new Promise((resolve, reject) => {
+    if (!chrome?.storage?.local) {
+      reject(new Error('no_storage'));
+      return;
+    }
+    chrome.storage.local.remove(keys, () => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 function normalizeStorageKey(href) {
   try {
     const u = new URL(href);
