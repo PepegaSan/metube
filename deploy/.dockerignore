@@ -1,0 +1,13 @@
+# Used when build context is repo root (..). Copy or symlink as ../.dockerignore if needed.
+downloads
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+ui/node_modules
+ui/dist
+**/.angular
+.git/objects
+*.md
+!deploy/README.md
+screenshot.gif
+metube.ai

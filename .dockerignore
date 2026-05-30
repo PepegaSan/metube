@@ -1,4 +1,8 @@
-.git
-.venv
-ui/.angular
+downloads
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
 ui/node_modules
+.git/objects
+screenshot.gif
+metube.ai

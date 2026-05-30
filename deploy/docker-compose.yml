@@ -1,0 +1,26 @@
+# Run from the metube repo root:
+#   docker compose -f deploy/docker-compose.yml build
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# Or use deploy/start-metube.ps1 on Windows.
+
+services:
+  metube:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: pepegasan/metube:local
+    container_name: metube-pepegasan
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../downloads:/downloads
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      DOWNLOAD_DIR: /downloads
+      STATE_DIR: /downloads/.metube
+      TEMP_DIR: /downloads
+      CORS_ALLOWED_ORIGINS: "*"
+      ALLOW_YTDL_OPTIONS_OVERRIDES: "true"
