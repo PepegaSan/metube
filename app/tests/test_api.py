@@ -230,7 +230,7 @@ async def test_version_json(mock_dqueue):
     resp = await main.version(req)
     assert resp.status == 200
     body = json.loads(resp.text)
-    assert "yt-dlp" in body and "version" in body
+    assert "yt-dlp" in body and "version" in body and "metube" in body
 
 
 @pytest.mark.asyncio

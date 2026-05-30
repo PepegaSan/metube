@@ -11,11 +11,19 @@ const btnQueueMerge = document.getElementById('btnQueueMerge');
 const btnCancelPending = document.getElementById('btnCancelPending');
 const btnShowBar = document.getElementById('btnShowBar');
 const optionsLink = document.getElementById('optionsLink');
+const streamSection = document.getElementById('streamSection');
+const streamListEl = document.getElementById('streamList');
+const streamClipListEl = document.getElementById('streamClipList');
+const btnClearStreams = document.getElementById('btnClearStreams');
 
 let pageUrl = null;
 let pageKey = null;
 let clips = [];
 let pendingStart = null;
+let activeTabId = null;
+let streams = [];
+let streamTimer = null;
+let tabClips = [];
 
 optionsLink.href = chrome.runtime.getURL('options.html');
 optionsLink.addEventListener('click', (e) => {
@@ -26,6 +34,169 @@ optionsLink.addEventListener('click', (e) => {
 function sendBg(action) {
   return chrome.runtime.sendMessage({ action });
 }
+
+async function getActiveTabId() {
+  if (activeTabId != null) return activeTabId;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  activeTabId = tab?.id ?? null;
+  return activeTabId;
+}
+
+function shortenUrl(url) {
+  try {
+    const u = new URL(url);
+    const file = u.pathname.split('/').filter(Boolean).pop() || u.pathname;
+    return `${u.hostname}/…/${file}`;
+  } catch {
+    return url.length > 60 ? `${url.slice(0, 57)}…` : url;
+  }
+}
+
+function refererLabel(stream) {
+  const ref = stream.referer || stream.origin || '';
+  if (!ref) return 'kein Referer erkannt';
+  try {
+    return `Referer: ${new URL(ref).origin}`;
+  } catch {
+    return `Referer: ${ref}`;
+  }
+}
+
+async function sendStream(stream, withClips, button, mergeClips = false) {
+  button.disabled = true;
+  if (mergeClips) setStatus('Sende Stream als Zusammenschnitt…');
+  else setStatus(withClips ? 'Sende Stream mit Schnitt…' : 'Sende Stream…');
+  const result = await chrome.runtime.sendMessage({
+    action: 'queueStream',
+    stream,
+    pageUrl,
+    clips: withClips ? tabClips : [],
+    mergeClips,
+  });
+  if (result?.ok) {
+    if (mergeClips) setStatus('Zusammenschnitt in der Queue.');
+    else setStatus(withClips ? 'Stream + Schnitt in der Queue.' : 'Stream in der Queue.');
+  } else {
+    setStatus(`Fehler: ${result?.error || '?'}`);
+    button.disabled = false;
+  }
+}
+
+function renderTabClips() {
+  if (!streamClipListEl) return;
+  streamClipListEl.innerHTML = '';
+  tabClips.forEach((clip, index) => {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${clip.start} → ${clip.end}`;
+    li.appendChild(label);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '×';
+    del.title = 'Abschnitt aus der Auswahl entfernen';
+    del.addEventListener('click', () => removeTabClip(index));
+    li.appendChild(del);
+    streamClipListEl.appendChild(li);
+  });
+}
+
+async function removeTabClip(index) {
+  const tabId = await getActiveTabId();
+  const res = await chrome.runtime.sendMessage({ action: 'removeTabClip', tabId, index });
+  if (res?.ok) {
+    tabClips = Array.isArray(res.clips) ? res.clips : [];
+    renderStreams();
+  } else {
+    setStatus(`Konnte Abschnitt nicht entfernen: ${res?.error || '?'}`);
+  }
+}
+
+function renderStreams() {
+  renderTabClips();
+  streamListEl.innerHTML = '';
+  if (!streams.length && !tabClips.length) {
+    streamSection.hidden = true;
+    return;
+  }
+  streamSection.hidden = false;
+  const hasCuts = tabClips.length > 0;
+  streams.forEach((stream) => {
+    const li = document.createElement('li');
+
+    const info = document.createElement('div');
+    info.className = 'stream-info';
+    const kind = document.createElement('span');
+    kind.className = `stream-kind ${stream.kind || ''}`;
+    kind.textContent = stream.kind || 'media';
+    const urlSpan = document.createElement('span');
+    urlSpan.className = 'stream-url';
+    urlSpan.textContent = shortenUrl(stream.url);
+    urlSpan.title = stream.url;
+    const refSpan = document.createElement('div');
+    refSpan.className = 'stream-ref';
+    refSpan.textContent = refererLabel(stream);
+    info.appendChild(kind);
+    info.appendChild(urlSpan);
+    info.appendChild(refSpan);
+    li.appendChild(info);
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'stream-btns';
+    if (hasCuts) {
+      const cut = document.createElement('button');
+      cut.type = 'button';
+      cut.className = 'stream-send';
+      cut.textContent = `Mit Schnitt (${tabClips.length})`;
+      cut.title = 'Jeden markierten Abschnitt als eigene Datei';
+      cut.addEventListener('click', () => sendStream(stream, true, cut, false));
+      btnGroup.appendChild(cut);
+
+      if (tabClips.length >= 2) {
+        const merge = document.createElement('button');
+        merge.type = 'button';
+        merge.className = 'stream-merge';
+        merge.textContent = `Zusammenfügen (${tabClips.length})`;
+        merge.title = 'Alle markierten Abschnitte zu einer Datei zusammenfügen';
+        merge.addEventListener('click', () => sendStream(stream, true, merge, true));
+        btnGroup.appendChild(merge);
+      }
+
+      const full = document.createElement('button');
+      full.type = 'button';
+      full.className = 'stream-full';
+      full.textContent = 'Ganzes';
+      full.addEventListener('click', () => sendStream(stream, false, full));
+      btnGroup.appendChild(full);
+    } else {
+      const send = document.createElement('button');
+      send.type = 'button';
+      send.className = 'stream-send';
+      send.textContent = 'Senden';
+      send.addEventListener('click', () => sendStream(stream, false, send));
+      btnGroup.appendChild(send);
+    }
+    li.appendChild(btnGroup);
+    streamListEl.appendChild(li);
+  });
+}
+
+async function refreshStreams() {
+  const tabId = await getActiveTabId();
+  const [streamRes, clipsRes] = await Promise.all([
+    chrome.runtime.sendMessage({ action: 'getDetectedStreams', tabId }),
+    chrome.runtime.sendMessage({ action: 'getTabClips', tabId }),
+  ]);
+  streams = Array.isArray(streamRes?.streams) ? streamRes.streams : [];
+  tabClips = Array.isArray(clipsRes?.tabClips?.clips) ? clipsRes.tabClips.clips : [];
+  renderStreams();
+}
+
+btnClearStreams?.addEventListener('click', async () => {
+  const tabId = await getActiveTabId();
+  await chrome.runtime.sendMessage({ action: 'clearDetectedStreams', tabId });
+  streams = [];
+  renderStreams();
+});
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -163,3 +334,8 @@ async function sendQueue(mergeClips) {
 }
 
 refresh();
+refreshStreams();
+streamTimer = setInterval(refreshStreams, 1500);
+window.addEventListener('unload', () => {
+  if (streamTimer) clearInterval(streamTimer);
+});

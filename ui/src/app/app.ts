@@ -127,7 +127,9 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   private static readonly BATCH_IMPORT_CONCURRENCY = 4;
   ytDlpOptionsUpdateTime: string | null = null;
   ytDlpVersion: string | null = null;
+  ytDlpCommit: string | null = null;
   metubeVersion: string | null = null;
+  buildDate: string | null = null;
   isAdvancedOpen = false;
   sortAscending = false;
   expandedErrors: Set<string> = new Set<string>();
@@ -1557,11 +1559,19 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
     // eslint-disable-next-line no-useless-escape
     const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/[^\/]*$/, '/')}`;
     const versionUrl = `${baseUrl}version`;
-    this.http.get<{ 'yt-dlp': string, version: string }>(versionUrl)
+    this.http.get<{
+      'yt-dlp': string;
+      version: string;
+      metube?: string;
+      'yt-dlp-commit'?: string | null;
+      build?: string | null;
+    }>(versionUrl)
       .subscribe({
         next: (data) => {
           this.ytDlpVersion = data['yt-dlp'];
-          this.metubeVersion = data.version;
+          this.ytDlpCommit = data['yt-dlp-commit'] ?? null;
+          this.metubeVersion = data.metube ?? data.version;
+          this.buildDate = data.build ?? null;
         },
         error: () => {
           this.ytDlpVersion = null;

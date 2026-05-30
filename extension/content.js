@@ -1,8 +1,39 @@
 const CLIPS_KEY = 'clipDraftByUrl';
 
+const IS_TOP_FRAME = (() => {
+  try {
+    return window.top === window.self;
+  } catch {
+    return false;
+  }
+})();
+
 let contextTeardownDone = false;
 let navIntervalId = null;
 let syncIntervalId = null;
+
+/**
+ * Tell the background which clips belong to this tab. Used so the popup can
+ * attach cuts to a sniffed stream URL even when the video lives in a
+ * cross-origin iframe (StreamSB/Streamtape) that the popup can't reach.
+ */
+function reportClipsToBackground() {
+  if (handleInvalidExtensionContext()) {
+    return;
+  }
+  try {
+    const key = storageKey();
+    chrome.runtime.sendMessage({
+      action: 'reportClips',
+      clips: sessionClipsByKey[key] ? [...sessionClipsByKey[key]] : [],
+      pageUrl: pageUrlForMeTube(location.href),
+      pageKey: key,
+      isTop: IS_TOP_FRAME,
+    });
+  } catch {
+    /* ignore — background may be asleep, popup reads storage anyway */
+  }
+}
 
 /** After extension reload, old tabs must refresh (F5). */
 function isExtensionContextValid() {
@@ -274,6 +305,9 @@ async function loadClipsForPage() {
   const all = data[CLIPS_KEY] || {};
   const list = all[key] ? [...all[key]] : [];
   sessionClipsByKey[key] = list;
+  if (list.length) {
+    reportClipsToBackground();
+  }
   return list;
 }
 
@@ -286,7 +320,34 @@ async function appendClip(clip) {
   const all = data[CLIPS_KEY] || {};
   all[key] = list;
   await mtStorageLocalSet({ [CLIPS_KEY]: all });
+  reportClipsToBackground();
   return list;
+}
+
+/**
+ * Remove one saved clip (by index) from this frame's draft + persistent
+ * storage, then re-report. Used by the popup to drop a marked section before
+ * it is sent to MeTube — also works for cross-origin hoster iframes, since the
+ * removal message is broadcast to all frames and only the owning one acts.
+ */
+async function removeClipAt(index) {
+  const key = storageKey();
+  const list = sessionClipsByKey[key] ? [...sessionClipsByKey[key]] : [];
+  if (index >= 0 && index < list.length) {
+    list.splice(index, 1);
+  }
+  sessionClipsByKey[key] = list;
+  const data = await mtStorageLocalGet(CLIPS_KEY);
+  const all = data[CLIPS_KEY] || {};
+  if (list.length) {
+    all[key] = list;
+  } else {
+    delete all[key];
+  }
+  await mtStorageLocalSet({ [CLIPS_KEY]: all });
+  reportClipsToBackground();
+  updateOverlayUiNow();
+  return { ok: true, clips: list };
 }
 
 function updateOverlayUiNow() {
@@ -362,6 +423,7 @@ function doClearPending() {
   updateOverlayUiNow();
   return savePendingToStorage(null).then(() => {
     updateOverlayUiNow();
+    reportClipsToBackground();
     return { ok: true };
   });
 }
@@ -575,6 +637,28 @@ navIntervalId = setInterval(() => {
 }, 800);
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  // Clip removal must reach the frame that actually owns the clips, which may
+  // be a cross-origin hoster iframe rather than the top frame. The message is
+  // broadcast to every frame; only the one whose pageKey matches acts on it.
+  if (msg?.action === 'removeClip') {
+    if (handleInvalidExtensionContext()) {
+      sendResponse({ ok: false, error: 'context_invalidated', hint: 'reload_tab' });
+      return true;
+    }
+    if (msg.pageKey && msg.pageKey !== storageKey()) {
+      return false; // another frame owns these clips
+    }
+    removeClipAt(Number(msg.index)).then(sendResponse);
+    return true;
+  }
+
+  // Popup RPC is answered only by the top frame, so cross-origin iframes
+  // (which now also run this script via all_frames) never clobber the
+  // response on normal sites. Iframes still show their own clip bar and
+  // report clips to the background.
+  if (!IS_TOP_FRAME) {
+    return false;
+  }
   if (handleInvalidExtensionContext()) {
     sendResponse({ ok: false, error: 'context_invalidated', hint: 'reload_tab' });
     return true;

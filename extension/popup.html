@@ -26,7 +26,16 @@
     <button type="button" id="btnQueueEach" class="primary" disabled>In Queue (einzeln)</button>
     <button type="button" id="btnQueueMerge" disabled>In Queue (merged)</button>
   </div>
-  <p class="hint">Funktioniert auf jeder Seite mit einem <code>&lt;video&gt;</code>-Element. MeTube braucht <code>CORS_ALLOWED_ORIGINS=*</code>.</p>
+  <section id="streamSection" class="streams" hidden>
+    <div class="streams-head">
+      <h2>Erkannte Streams</h2>
+      <button type="button" id="btnClearStreams" title="Liste leeren">leeren</button>
+    </div>
+    <p class="streams-hint">Für iframe-Hoster (z. B. StreamSB/Streamtape): erkannte Quelle direkt mit Referer an MeTube senden.</p>
+    <ul id="streamClipList" class="clips stream-clips"></ul>
+    <ul id="streamList" class="streams-list"></ul>
+  </section>
+  <p class="hint">Funktioniert auf jeder Seite mit einem <code>&lt;video&gt;</code>-Element. MeTube braucht <code>CORS_ALLOWED_ORIGINS=*</code>. Stream-Versand braucht zusätzlich <code>ALLOW_YTDL_OPTIONS_OVERRIDES=true</code>.</p>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

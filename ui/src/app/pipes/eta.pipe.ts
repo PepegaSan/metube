@@ -5,8 +5,8 @@ import { Pipe, PipeTransform } from "@angular/core";
 })
 export class EtaPipe implements PipeTransform {
   transform(value: number): string | null {
-    if (value === null) {
-      return null;
+    if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
+      return '';
     }
     if (value < 60) {
       return `${Math.round(value)}s`;

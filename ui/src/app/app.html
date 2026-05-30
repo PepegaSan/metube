@@ -774,7 +774,12 @@
             </td>
             <td title="{{ download.value.filename }}">
               <div class="d-flex flex-column flex-sm-row align-items-center row-gap-2 column-gap-3">
-                <div>{{ download.value.title }} </div>
+                <div class="download-title-block">
+                  <div>{{ download.value.title }}</div>
+                  @if (download.value.msg && download.value.status === 'downloading') {
+                    <small class="text-muted download-status-msg">{{ download.value.msg }}</small>
+                  }
+                </div>
                 <ngb-progressbar height="1.5rem" [showValue]="download.value.status !== 'preparing'" [striped]="download.value.status === 'preparing'" [animated]="download.value.status === 'preparing'" type="success"
                 [value]="download.value.status === 'preparing' ? 100 : download.value.percent" class="download-progressbar" />
               </div>
@@ -1106,12 +1111,16 @@
       <div class="footer-content">
         <div class="version-item">
           <span class="version-label">yt-dlp</span>
-          <span class="version-value">{{ytDlpVersion}}</span>
+          <span class="version-value">
+            {{ ytDlpVersion }}@if (ytDlpCommit) { <span class="version-meta">· {{ ytDlpCommit }}</span> }
+          </span>
         </div>
         <div class="version-separator"></div>
         <div class="version-item">
           <span class="version-label">MeTube</span>
-          <span class="version-value">{{metubeVersion}}</span>
+          <span class="version-value">
+            {{ metubeVersion }}@if (buildDate) { <span class="version-meta">· {{ buildDate }}</span> }
+          </span>
         </div>
         <div class="version-separator"></div>
         @if (ytDlpOptionsUpdateTime) {
@@ -1123,7 +1132,7 @@
         @if (ytDlpOptionsUpdateTime) {
           <div class="version-separator"></div>
         }
-        <a href="https://github.com/alexta69/metube" target="_blank" class="github-link">
+        <a href="https://github.com/PepegaSan/metube" target="_blank" class="github-link">
           <fa-icon [icon]="faGithub" />
           <span>GitHub</span>
         </a>

@@ -23,6 +23,7 @@ from dl_formats import get_format, get_opts, AUDIO_FORMATS
 from datetime import datetime
 from state_store import AtomicJsonStore, from_json_compatible, read_legacy_shelf, to_json_compatible
 from subscriptions import _entry_id
+from smart_clip import _progress_payload, is_hls_url, smart_clip_hls
 
 log = logging.getLogger('ytdl')
 
@@ -509,8 +510,16 @@ class Download:
         batch_dir = os.path.join(self.temp_dir, f'merge_{self.info.id}')
         os.makedirs(batch_dir, exist_ok=True)
         part_paths: list[str] = []
+        total_parts = len(ranges)
         try:
             for i, (start, end) in enumerate(ranges):
+                part_scale = 0.88 / max(total_parts, 1)
+                part_base = i * part_scale
+                self.status_queue.put(_progress_payload(
+                    phase='merge-part',
+                    fraction=part_base,
+                    msg=f'Teil {i + 1}/{total_parts}: Download…',
+                ))
                 part_tmpl = os.path.join(batch_dir, f'part_{i:03d}.%(ext)s')
                 part_params = {
                     **ytdl_params,
@@ -520,14 +529,62 @@ class Download:
                         [(float(start), float(end))],
                     ),
                 }
-                code = yt_dlp.YoutubeDL(params=part_params).download([self.info.url])
-                if code != 0:
-                    return code
-                matches = sorted(glob.glob(os.path.join(batch_dir, f'part_{i:03d}.*')))
-                if not matches:
+                produced = None
+                try:
+                    code = yt_dlp.YoutubeDL(params=part_params).download([self.info.url])
+                except yt_dlp.utils.YoutubeDLError as exc:
+                    code = 1
+                    log.warning('Merged clip part %s failed: %s', i, exc)
+                if code == 0:
+                    matches = sorted(glob.glob(os.path.join(batch_dir, f'part_{i:03d}.*')))
+                    produced = matches[0] if matches else None
+                # Fallback for PNG-disguised / ffmpeg-unfriendly HLS segments.
+                if produced is None and is_hls_url(self.info.url):
+                    log.warning('Merged clip part %s: trying smart-clip HLS fallback', i)
+                    part_out = os.path.join(batch_dir, f'part_{i:03d}.mp4')
+                    raw_ts = os.path.join(batch_dir, f'part_{i:03d}_raw.ts')
+
+                    def _merge_part_progress(payload, _base=part_base, _scale=part_scale, _i=i):
+                        self.status_queue.put({
+                            **payload,
+                            'msg': f'Teil {_i + 1}/{total_parts}: {payload.get("msg", "")}',
+                        })
+
+                    self.status_queue.put({
+                        'status': 'downloading',
+                        'msg': f'Teil {i + 1}/{total_parts}: starte…',
+                    })
+                    ok, msg = smart_clip_hls(
+                        self.info.url,
+                        self._clip_http_headers(),
+                        float(start),
+                        float(end),
+                        raw_ts,
+                        part_out,
+                        progress=_merge_part_progress,
+                        progress_base=part_base,
+                        progress_scale=part_scale,
+                    )
+                    if os.path.exists(raw_ts):
+                        try:
+                            os.remove(raw_ts)
+                        except OSError:
+                            pass
+                    if ok:
+                        produced = part_out
+                    else:
+                        log.error('Merged clip part %s smart-clip failed: %s', i, msg)
+                if produced is None:
                     log.error('Merged clip part %s produced no file', i)
                     return 1
-                part_paths.append(matches[0])
+                part_paths.append(produced)
+
+            self.status_queue.put(_progress_payload(
+                phase='merge',
+                fraction=0.92,
+                msg=f'Füge {len(part_paths)} Teile zusammen…',
+                eta=max(len(part_paths) * 3, 5),
+            ))
 
             list_path = os.path.join(batch_dir, 'concat.txt')
             with open(list_path, 'w', encoding='utf-8') as fh:
@@ -571,6 +628,74 @@ class Download:
             return 0
         finally:
             shutil.rmtree(batch_dir, ignore_errors=True)
+
+    def _clip_http_headers(self):
+        """Headers (Referer/User-Agent) passed by the sniffer via ytdl overrides."""
+        opts_headers = self.ytdl_opts.get('http_headers') if isinstance(self.ytdl_opts, dict) else None
+        return dict(opts_headers) if isinstance(opts_headers, dict) else None
+
+    def _smart_clip_fallback(self, start, end) -> bool:
+        """Clip an HLS stream that ffmpeg can't handle directly (PNG-disguised TS).
+
+        Returns True and pushes a ``finished`` status (with filename) on success.
+        """
+        raw_ts = None
+        try:
+            headers = self._clip_http_headers()
+
+            name_info = dict(self.info.entry) if isinstance(self.info.entry, dict) else {}
+            name_info.setdefault('title', self.info.title)
+            name_info.setdefault('id', self.info.id)
+            name_info['ext'] = 'mp4'
+            out_name = yt_dlp.YoutubeDL({
+                'quiet': True,
+                'paths': {'home': self.download_dir},
+            }).prepare_filename(name_info, outtmpl=self.output_template)
+            if not os.path.isabs(out_name):
+                out_name = os.path.join(self.download_dir, out_name)
+            os.makedirs(os.path.dirname(out_name) or self.download_dir, exist_ok=True)
+
+            os.makedirs(self.temp_dir, exist_ok=True)
+            raw_ts = os.path.join(self.temp_dir, f'smartclip_{self.info.id}.ts')
+
+            def _progress(payload):
+                self.status_queue.put(payload)
+
+            self.status_queue.put({
+                'status': 'downloading',
+                'msg': 'Smart-Clip: Playlist laden…',
+                'downloaded_bytes': 0,
+                'total_bytes_estimate': 1_000_000,
+            })
+
+            ok, msg = smart_clip_hls(
+                self.info.url,
+                headers,
+                float(start) if start is not None else 0.0,
+                float(end) if end is not None else float('inf'),
+                raw_ts,
+                out_name,
+                progress=_progress,
+            )
+            if not ok:
+                log.error("smart-clip fallback failed: %s", msg)
+                return False
+
+            rel_name = os.path.relpath(out_name, self.download_dir)
+            self.info.filename = rel_name
+            self.info.size = os.path.getsize(out_name) if os.path.exists(out_name) else None
+            self.status_queue.put({'status': 'finished', 'filename': out_name})
+            log.info("smart-clip fallback produced %s", out_name)
+            return True
+        except Exception as exc:  # noqa: BLE001 - never let the fallback crash the worker
+            log.error("smart-clip fallback crashed: %s", exc)
+            return False
+        finally:
+            if raw_ts and os.path.exists(raw_ts):
+                try:
+                    os.remove(raw_ts)
+                except OSError:
+                    pass
 
     def _download(self):
         log.info(f"Starting download for: {self.info.title} ({self.info.url})")
@@ -649,14 +774,42 @@ class Download:
             else:
                 clip_start = getattr(self.info, 'clip_start', None)
                 clip_end = getattr(self.info, 'clip_end', None)
-                if clip_start is not None or clip_end is not None:
+                is_clip = clip_start is not None or clip_end is not None
+                start = end = None
+                if is_clip:
                     start = float(clip_start) if clip_start is not None else 0.0
                     end = float(clip_end) if clip_end is not None else float('inf')
                     ytdl_params['download_ranges'] = yt_dlp.utils.download_range_func(
                         None,
                         [(start, end)],
                     )
-                ret = yt_dlp.YoutubeDL(params=ytdl_params).download([self.info.url])
+                clip_dl_error = None
+                try:
+                    ret = yt_dlp.YoutubeDL(params=ytdl_params).download([self.info.url])
+                except yt_dlp.utils.YoutubeDLError as exc:
+                    # ffmpeg clip failures (e.g. exit code 183/234 on PNG-disguised
+                    # HLS) are raised, not returned. Remember the error and try the
+                    # smart-clip fallback below before giving up.
+                    ret = 1
+                    clip_dl_error = exc
+                # Fallback: some hosters disguise their MPEG-TS segments as images
+                # (PNG-prefixed), which makes both ffmpeg's clip (download_ranges)
+                # and the full HLS download fail. Retry with a strip-and-cut
+                # downloader. For a full download we grab the whole stream (0..inf).
+                if ret != 0 and is_hls_url(self.info.url):
+                    log.warning(
+                        "Standard %s download failed for %s; trying smart-clip HLS fallback",
+                        "clip" if is_clip else "full",
+                        self.info.title,
+                    )
+                    fb_start = start if is_clip else 0.0
+                    fb_end = end if is_clip else float('inf')
+                    if self._smart_clip_fallback(fb_start, fb_end):
+                        ret = 0
+                        clip_dl_error = None
+                # Preserve the original yt-dlp error if the fallback did not run/help.
+                if ret != 0 and clip_dl_error is not None:
+                    raise clip_dl_error
             self.status_queue.put({'status': 'finished' if ret == 0 else 'error'})
             log.info(f"Finished download for: {self.info.title}")
         except yt_dlp.utils.YoutubeDLError as exc:

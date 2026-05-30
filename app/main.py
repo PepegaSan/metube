@@ -1081,11 +1081,31 @@ async def robots(request):
         )
     return response
 
+def _read_build_meta(filename: str, env_var: str | None = None) -> str | None:
+    path = os.path.join("/etc/metube", filename)
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as meta_file:
+            value = meta_file.read().strip()
+            if value:
+                return value
+    if env_var:
+        return os.getenv(env_var) or None
+    return None
+
+
 @routes.get(config.URL_PREFIX + 'version')
 async def version(request):
+    metube_commit = (
+        _read_build_meta("metube-commit", "METUBE_COMMIT")
+        or os.getenv("METUBE_VERSION")
+        or "dev"
+    )
     return web.json_response({
         "yt-dlp": yt_dlp_version,
-        "version": os.getenv("METUBE_VERSION", "dev")
+        "yt-dlp-commit": _read_build_meta("ytdlp-commit", "YTDLP_COMMIT"),
+        "metube": metube_commit,
+        "version": metube_commit,
+        "build": _read_build_meta("build-date", "METUBE_BUILD_DATE"),
     })
 
 if config.URL_PREFIX != '/':

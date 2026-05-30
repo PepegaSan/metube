@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "MeTube Clips · PepegaSan",
-  "version": "0.2.9",
-  "description": "Mark clip times on any page with a video element and send them to your MeTube instance.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "version": "0.3.4",
+  "description": "Mark clip times on any page with a video element and send them to your MeTube instance. Works inside iframe hosters; detects HLS/DASH/MP4 streams and sends cuts with Referer.",
+  "permissions": ["storage", "activeTab", "scripting", "webRequest"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html",
@@ -21,7 +21,8 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

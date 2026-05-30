@@ -1,14 +1,14 @@
 import { EtaPipe } from './eta.pipe';
 
 describe('EtaPipe', () => {
-  it('returns null for null input', () => {
+  it('returns empty for unknown input', () => {
     const pipe = new EtaPipe();
-    expect(pipe.transform(null as unknown as number)).toBeNull();
+    expect(pipe.transform(null as unknown as number)).toBe('');
+    expect(pipe.transform(0)).toBe('');
   });
 
   it('formats seconds under one minute', () => {
     const pipe = new EtaPipe();
-    expect(pipe.transform(0)).toBe('0s');
     expect(pipe.transform(59)).toBe('59s');
   });
 
