@@ -1611,18 +1611,51 @@ class DownloadQueue:
                 await self.notifier.canceled(id)
         return {'status': 'ok'}
 
-    async def clear(self, ids):
+    def _delete_download_files(self, dl) -> None:
+        """Remove finished download media (and chapter/subtitle sidecars) from disk."""
+        dldirectory, err = self.__calc_download_path(dl.info.download_type, dl.info.folder)
+        if err is not None:
+            log.warning('skipping file delete for %s: %s', dl.info.title, err.get('msg'))
+            return
+        real_base = os.path.realpath(dldirectory)
+        rel_paths: list[str] = []
+        if getattr(dl.info, 'filename', None):
+            rel_paths.append(dl.info.filename)
+        for ch in getattr(dl.info, 'chapter_files', None) or []:
+            if isinstance(ch, dict) and ch.get('filename'):
+                rel_paths.append(ch['filename'])
+        for sub in getattr(dl.info, 'subtitle_files', None) or []:
+            if isinstance(sub, dict) and sub.get('filename'):
+                rel_paths.append(sub['filename'])
+        for rel in rel_paths:
+            try:
+                path = os.path.realpath(os.path.join(dldirectory, rel))
+            except OSError as exc:
+                log.warning('invalid path for delete %r: %s', rel, exc)
+                continue
+            if path != real_base and not path.startswith(real_base + os.sep):
+                log.warning('refusing to delete outside download dir: %s', path)
+                continue
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                    log.info('deleted file %s', path)
+            except OSError as exc:
+                log.warning('deleting file %s failed: %r', path, exc)
+
+    async def clear(self, ids, delete_files=None):
+        should_delete = (
+            bool(self.config.DELETE_FILE_ON_TRASHCAN)
+            if delete_files is None
+            else bool(delete_files)
+        )
         for id in ids:
             if not self.done.exists(id):
                 log.warning(f'requested delete for non-existent download {id}')
                 continue
-            if self.config.DELETE_FILE_ON_TRASHCAN:
-                dl = self.done.get(id)
-                try:
-                    dldirectory, _ = self.__calc_download_path(dl.info.download_type, dl.info.folder)
-                    os.remove(os.path.join(dldirectory, dl.info.filename))
-                except Exception as e:
-                    log.warning(f'deleting file for download {id} failed with error message {e!r}')
+            dl = self.done.get(id)
+            if should_delete:
+                self._delete_download_files(dl)
             self.done.delete(id)
             await self.notifier.cleared(id)
         return {'status': 'ok'}

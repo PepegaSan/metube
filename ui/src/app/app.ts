@@ -127,6 +127,8 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   private static readonly BATCH_IMPORT_CONCURRENCY = 4;
   ytDlpOptionsUpdateTime: string | null = null;
   ytDlpVersion: string | null = null;
+  /** When true, clearing completed/failed items also deletes files from disk. */
+  deleteFilesOnClear = true;
   ytDlpCommit: string | null = null;
   metubeVersion: string | null = null;
   buildDate: string | null = null;
@@ -1220,7 +1222,8 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   }
 
   delDownload(where: State, id: string) {
-    this.downloads.delById(where, [id]).subscribe();
+    const deleteFiles = where === 'done' ? this.deleteFilesOnClear : undefined;
+    this.downloads.delById(where, [id], deleteFiles).subscribe();
   }
 
   startSelectedDownloads(where: State){
@@ -1228,15 +1231,25 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
   }
 
   delSelectedDownloads(where: State) {
-    this.downloads.delByFilter(where, dl => !!dl.checked).subscribe();
+    const deleteFiles = where === 'done' ? this.deleteFilesOnClear : undefined;
+    this.downloads.delByFilter(where, dl => !!dl.checked, deleteFiles).subscribe();
   }
 
   clearCompletedDownloads() {
-    this.downloads.delByFilter('done', dl => dl.status === 'finished').subscribe();
+    this.downloads.delByFilter('done', dl => dl.status === 'finished', this.deleteFilesOnClear).subscribe();
   }
 
   clearFailedDownloads() {
-    this.downloads.delByFilter('done', dl => dl.status === 'error').subscribe();
+    this.downloads.delByFilter('done', dl => dl.status === 'error', this.deleteFilesOnClear).subscribe();
+  }
+
+  onDeleteFilesOnClearChange() {
+    this.cookieService.set(
+      'metube_delete_files_on_clear',
+      this.deleteFilesOnClear ? 'true' : 'false',
+      { expires: this.settingsCookieExpiryDays },
+    );
+    this.cdr.markForCheck();
   }
 
   retryFailedDownloads() {
@@ -1559,12 +1572,18 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
     // eslint-disable-next-line no-useless-escape
     const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/[^\/]*$/, '/')}`;
     const versionUrl = `${baseUrl}version`;
+    const savedDeletePref = this.cookieService.get('metube_delete_files_on_clear');
+    if (savedDeletePref === 'true' || savedDeletePref === 'false') {
+      this.deleteFilesOnClear = savedDeletePref === 'true';
+    }
+
     this.http.get<{
       'yt-dlp': string;
       version: string;
       metube?: string;
       'yt-dlp-commit'?: string | null;
       build?: string | null;
+      delete_file_on_trashcan?: boolean;
     }>(versionUrl)
       .subscribe({
         next: (data) => {
@@ -1572,10 +1591,15 @@ export class App implements AfterViewInit, OnInit, OnDestroy {
           this.ytDlpCommit = data['yt-dlp-commit'] ?? null;
           this.metubeVersion = data.metube ?? data.version;
           this.buildDate = data.build ?? null;
+          if (savedDeletePref !== 'true' && savedDeletePref !== 'false' && data.delete_file_on_trashcan != null) {
+            this.deleteFilesOnClear = !!data.delete_file_on_trashcan;
+          }
+          this.cdr.markForCheck();
         },
         error: () => {
           this.ytDlpVersion = null;
           this.metubeVersion = null;
+          this.cdr.markForCheck();
         }
       });
   }

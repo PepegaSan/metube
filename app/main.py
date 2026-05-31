@@ -900,7 +900,11 @@ async def delete(request):
     if not ids or where not in ['queue', 'done']:
         log.error("Bad request: missing 'ids' or incorrect 'where' value")
         raise web.HTTPBadRequest()
-    status = await (dqueue.cancel(ids) if where == 'queue' else dqueue.clear(ids))
+    delete_files = post.get('delete_files')
+    if where == 'queue':
+        status = await dqueue.cancel(ids)
+    else:
+        status = await dqueue.clear(ids, delete_files=delete_files)
     log.info(f"Download delete request processed for ids: {ids}, where: {where}")
     return web.Response(text=serializer.encode(status))
 
@@ -1106,6 +1110,7 @@ async def version(request):
         "metube": metube_commit,
         "version": metube_commit,
         "build": _read_build_meta("build-date", "METUBE_BUILD_DATE"),
+        "delete_file_on_trashcan": bool(config.DELETE_FILE_ON_TRASHCAN),
     })
 
 if config.URL_PREFIX != '/':

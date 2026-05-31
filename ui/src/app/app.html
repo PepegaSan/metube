@@ -803,6 +803,12 @@
 
   <div class="metube-section-header">Completed</div>
   <div class="px-2 py-3 border-bottom">
+    <div class="form-check form-check-inline mb-2 me-4">
+      <input class="form-check-input" type="checkbox" id="deleteFilesOnClear" [(ngModel)]="deleteFilesOnClear" (ngModelChange)="onDeleteFilesOnClearChange()" />
+      <label class="form-check-label" for="deleteFilesOnClear" ngbTooltip="Bei Clear / Papierkorb auch die Dateien im Download-Ordner löschen">
+        Dateien von Festplatte löschen
+      </label>
+    </div>
     <button type="button" class="btn btn-link text-decoration-none px-0 me-4" (click)="toggleSortOrder()" ngbTooltip="{{ sortAscending ? 'Oldest first' : 'Newest first' }}"><fa-icon [icon]="sortAscending ? faSortAmountUp : faSortAmountDown" />&nbsp; {{ sortAscending ? 'Oldest first' : 'Newest first' }}</button>
     <button type="button" class="btn btn-link text-decoration-none px-0 me-4" disabled #doneDelSelected (click)="delSelectedDownloads('done')"><fa-icon [icon]="faTrashAlt" />&nbsp; Clear selected</button>
     <button type="button" class="btn btn-link text-decoration-none px-0 me-4" [disabled]="!hasCompletedDone" (click)="clearCompletedDownloads()"><fa-icon [icon]="faCheckCircle" />&nbsp; Clear completed</button>

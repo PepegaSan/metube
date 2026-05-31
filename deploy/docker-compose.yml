@@ -24,3 +24,4 @@ services:
       TEMP_DIR: /downloads
       CORS_ALLOWED_ORIGINS: "*"
       ALLOW_YTDL_OPTIONS_OVERRIDES: "true"
+      DELETE_FILE_ON_TRASHCAN: "true"

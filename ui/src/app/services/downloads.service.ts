@@ -222,7 +222,7 @@ export class DownloadsService {
     return this.http.post('start', {ids: ids});
   }
 
-  public delById(where: State, ids: string[]) {
+  public delById(where: State, ids: string[], deleteFiles?: boolean) {
     const map = this[where];
     if (map) {
       for (const id of ids) {
@@ -232,7 +232,11 @@ export class DownloadsService {
         }
       }
     }
-    return this.http.post('delete', {where: where, ids: ids});
+    const body: { where: State; ids: string[]; delete_files?: boolean } = { where, ids };
+    if (where === 'done' && deleteFiles !== undefined) {
+      body.delete_files = deleteFiles;
+    }
+    return this.http.post('delete', body);
   }
 
   public startByFilter(where: State, filter: (dl: Download) => boolean) {
@@ -245,14 +249,14 @@ export class DownloadsService {
     return this.startById(ids);
   }
 
-  public delByFilter(where: State, filter: (dl: Download) => boolean) {
+  public delByFilter(where: State, filter: (dl: Download) => boolean, deleteFiles?: boolean) {
     const ids: string[] = [];
     this[where].forEach((dl: Download, key: string) => {
       if (filter(dl)) {
         ids.push(key);
       }
     });
-    return this.delById(where, ids);
+    return this.delById(where, ids, deleteFiles);
   }
   public cancelAdd() {
     return this.http.post<Status>('cancel-add', {}).pipe(

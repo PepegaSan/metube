@@ -55,3 +55,6 @@ files here are intended for a **single-repo** clone of `PepegaSan/metube`.
 
 Load `extension/` unpacked from this repo (`chrome://extensions`). Reload after updates.
 Sniffed streams need `ALLOW_YTDL_OPTIONS_OVERRIDES=true` (set in compose above).
+
+Clearing completed downloads can also delete files from disk (`DELETE_FILE_ON_TRASHCAN=true`,
+toggle in the UI under **Completed**).
